@@ -1,0 +1,96 @@
+export type { Order, AligoStatus, AligoTemplateType, AligoFailReason } from "./database";
+import type { AligoFailReason, AligoStatus, AligoTemplateType } from "./database";
+import type { VipLevel } from "./customer";
+
+export interface CreateOrderInput {
+  customer_name: string;
+  phone: string;
+  tracking_number?: string;
+  sender_name?: string;
+  receiver_name?: string;
+  memo?: string;
+  aligo_template_type?: AligoTemplateType;
+}
+
+export interface UpdateOrderInput {
+  customer_name?: string;
+  phone?: string;
+  tracking_number?: string;
+  sender_name?: string | null;
+  receiver_name?: string | null;
+  memo?: string | null;
+  aligo_status?: AligoStatus;
+  aligo_template_type?: AligoTemplateType;
+  aligo_fail_reason?: AligoFailReason | null;
+  aligo_fail_message?: string | null;
+  retry_count?: number;
+  last_retry_at?: string | null;
+  aligo_response?: import("./aligo-audit").AligoResponseLog | null;
+  sent_at?: string | null;
+}
+
+export interface OrderListDateRangeParams {
+  /** UI/API 표시용 YYYY-MM-DD (KST) */
+  startDate: string;
+  endDate: string;
+  /** created_at >= startAt (KST 00:00:00.000) */
+  startAt: string;
+  /** created_at <= endAt (KST 23:59:59.999) */
+  endAt: string;
+}
+
+export interface OrderListQueryParams extends OrderListDateRangeParams {
+  customer_name?: string;
+  phone?: string;
+  /** 송장번호 검색 */
+  tracking_number?: string;
+}
+
+export interface OrderListItem {
+  id: string;
+  customer_name: string;
+  phone: string;
+  tracking_number: string;
+  sent_date: string;
+  created_at: string;
+  /** 발송 상태 (aligo_status 와 동일) */
+  status: AligoStatus;
+  aligo_status: AligoStatus;
+  aligo_template_type?: AligoTemplateType;
+  aligo_fail_reason?: AligoFailReason | null;
+  aligo_fail_message?: string | null;
+  retry_count?: number;
+  last_retry_at?: string | null;
+  order_count?: number;
+  vip_level?: VipLevel;
+  vip_badge?: "" | "👍" | "🏆";
+  /** orders.memo — 주문별 고객 메모 */
+  customer_memo?: string | null;
+  sent_at?: string | null;
+}
+
+export interface OrderListParams {
+  page: number;
+  limit: number;
+  search?: string;
+  customer_name?: string;
+  phone?: string;
+}
+
+export interface OrderListPagination {
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+}
+
+export interface OrderSearchParams {
+  query?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface StatsQueryParams {
+  year?: number;
+  month?: number;
+}

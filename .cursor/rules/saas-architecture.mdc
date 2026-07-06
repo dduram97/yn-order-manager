@@ -1,0 +1,35 @@
+---
+description: Vercel + VPS SaaS 아키텍처
+alwaysApply: true
+---
+
+# YN Order Manager — Vercel + VPS
+
+## 구조
+
+- **Vercel:** Next.js UI + `/api/*` (serverless)
+- **VPS:** `server/aligo-proxy` — Aligo API only (고정 IP)
+- **Supabase:** DB
+
+## env 분리
+
+| 위치 | 변수 |
+|------|------|
+| Vercel | Supabase, `ALIGO_API_URL`, `ALIGO_SENDER_PHONE`, `AUTH_SESSION_SECRET` |
+| VPS | `ALIGO_API_KEY`, `ALIGO_USER_ID`, `ALIGO_SENDER_KEY` |
+
+## 금지
+
+- Vercel에서 Aligo API 직접 호출
+- Vercel/dev에서 PM2
+- localhost / LAN / dev proxy 혼합
+
+## VPS PM2
+
+```bash
+cd server/aligo-proxy && pm2 start ecosystem.config.js
+```
+
+## dev
+
+`npm run dev` only — `ALIGO_API_URL`은 VPS를 가리킴
