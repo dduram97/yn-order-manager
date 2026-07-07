@@ -1,4 +1,6 @@
 import { ALIGO_STATUS_LABEL } from "@/lib/constants/aligo";
+import { DELIVERY_STATUS_LABEL } from "@/lib/constants/delivery";
+import { resolveListDeliveryStatus } from "@/lib/delivery/display";
 import { formatDateTime, formatPhone } from "@/lib/utils/format";
 import type { OrderListItem } from "@/types/order";
 
@@ -6,6 +8,7 @@ const CSV_HEADERS = [
   "고객명",
   "전화번호",
   "송장번호",
+  "배송상태",
   "템플릿 타입",
   "알리고 상태",
   "생성일",
@@ -19,10 +22,16 @@ function escapeCsvCell(value: string): string {
 }
 
 function toExportRow(order: OrderListItem): string[] {
+  const deliveryStatus = resolveListDeliveryStatus(
+    order.aligo_status,
+    order.delivery_status
+  );
+
   return [
     order.customer_name,
     formatPhone(order.phone),
     order.tracking_number || "-",
+    deliveryStatus ? DELIVERY_STATUS_LABEL[deliveryStatus] : "-",
     order.aligo_template_type || "-",
     ALIGO_STATUS_LABEL[order.aligo_status],
     formatDateTime(order.created_at),

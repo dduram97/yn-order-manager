@@ -1,5 +1,5 @@
 export type { Order, AligoStatus, AligoTemplateType, AligoFailReason } from "./database";
-import type { AligoFailReason, AligoStatus, AligoTemplateType } from "./database";
+import type { AligoFailReason, AligoStatus, AligoTemplateType, DeliveryStatus } from "./database";
 import type { VipLevel } from "./customer";
 
 export interface CreateOrderInput {
@@ -29,6 +29,9 @@ export interface UpdateOrderInput {
   last_retry_at?: string | null;
   aligo_response?: import("./aligo-audit").AligoResponseLog | null;
   sent_at?: string | null;
+  delivery_status?: DeliveryStatus | null;
+  delivery_updated_at?: string | null;
+  delivery_location?: string | null;
 }
 
 export interface OrderListDateRangeParams {
@@ -75,9 +78,10 @@ export interface OrderListItem {
   order_count?: number;
   vip_level?: VipLevel;
   vip_badge?: "" | "👍" | "🏆";
-  /** orders.memo — 주문별 고객 메모 */
-  customer_memo?: string | null;
   sent_at?: string | null;
+  delivery_status?: DeliveryStatus | null;
+  delivery_updated_at?: string | null;
+  delivery_location?: string | null;
 }
 
 export interface OrderListParams {

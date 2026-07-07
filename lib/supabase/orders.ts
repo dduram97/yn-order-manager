@@ -22,9 +22,9 @@ type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
 /** 목록 조회 — created_at(KST 일자) 기간 필터 + 실패 사유 */
 const ORDER_LIST_COLUMNS_BASE =
-  "id, customer_name, phone, tracking_number, memo, sent_date, created_at, aligo_status";
+  "id, customer_name, phone, tracking_number, sent_date, created_at, aligo_status";
 
-const ORDER_LIST_COLUMNS_WITH_FAIL = `${ORDER_LIST_COLUMNS_BASE}, aligo_fail_reason, aligo_fail_message, retry_count, last_retry_at, sent_at`;
+const ORDER_LIST_COLUMNS_WITH_FAIL = `${ORDER_LIST_COLUMNS_BASE}, aligo_fail_reason, aligo_fail_message, retry_count, last_retry_at, sent_at, delivery_status, delivery_location, delivery_updated_at`;
 
 export async function insertOrder(
   supabase: ServerSupabaseClient,
@@ -58,7 +58,7 @@ export async function insertOrder(
 
 /** 상세/수정 조회용 컬럼 */
 const ORDER_DETAIL_COLUMNS =
-  "id, group_id, customer_name, phone, tracking_number, sender_name, receiver_name, memo, sent_date, created_at, aligo_status, aligo_template_type, aligo_fail_reason, aligo_fail_message, retry_count, last_retry_at, aligo_response, sent_at";
+  "id, group_id, customer_name, phone, tracking_number, sender_name, receiver_name, memo, sent_date, created_at, aligo_status, aligo_template_type, aligo_fail_reason, aligo_fail_message, retry_count, last_retry_at, aligo_response, sent_at, delivery_status, delivery_location, delivery_updated_at";
 
 const ORDER_DETAIL_COLUMNS_LEGACY =
   "id, customer_name, phone, tracking_number, sender_name, receiver_name, memo, sent_date, created_at, aligo_status, aligo_template_type";
@@ -207,6 +207,9 @@ export async function recordAligoSendOutcome(
         aligo_fail_message: null,
         sent_at: now,
         aligo_response: input.aligoResponse ?? null,
+        delivery_status: "ready",
+        delivery_updated_at: now,
+        delivery_location: null,
         ...(input.incrementRetry
           ? { retry_count: nextRetryCount, last_retry_at: now }
           : {}),
@@ -265,17 +268,15 @@ async function queryListOrders(
 }
 
 function mapOrderListRow(
-  row: Omit<OrderListItem, "customer_memo" | "status"> & {
-    memo?: string | null;
+  row: Omit<OrderListItem, "status"> & {
     aligo_status: AligoStatus;
   }
 ): OrderListItem {
-  const { memo, aligo_status, ...rest } = row;
+  const { aligo_status, ...rest } = row;
   return {
     ...rest,
     aligo_status,
     status: aligo_status,
-    customer_memo: memo ?? null,
   };
 }
 
@@ -315,8 +316,7 @@ export async function listOrders(
 
   const { data, error, count } = result;
 
-  type OrderListRow = Omit<OrderListItem, "customer_memo" | "status"> & {
-    memo?: string | null;
+  type OrderListRow = Omit<OrderListItem, "status"> & {
     aligo_status: AligoStatus;
   };
 

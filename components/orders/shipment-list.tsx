@@ -4,19 +4,23 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AligoStatusBadge } from "@/components/orders/aligo-status-badge";
 import { CustomerNameWithBadge } from "@/components/orders/customer-name-with-badge";
+import { DeliveryStatusBadge } from "@/components/orders/delivery-status-badge";
+import { DeliveryTrackingModal } from "@/components/orders/delivery-tracking-modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
+import { resolveListDeliveryStatus } from "@/lib/delivery/display";
 import {
   copyOrdersToClipboard,
   downloadOrdersCsv,
 } from "@/lib/utils/export-orders";
 import {
   formatDateRangeLabel,
-  formatDateTime,
   formatPhone,
+  formatShortSentDate,
   getDefaultDateRange,
 } from "@/lib/utils/format";
+import type { DeliveryStatus } from "@/types/delivery";
 import type { OrderListItem, OrderListPagination } from "@/types/order";
 
 interface OrdersApiResponse {
@@ -39,16 +43,26 @@ interface SearchFilters {
   tracking_number: string;
 }
 
-function formatCustomerMemo(memo: string | null | undefined): string {
-  const trimmed = memo?.trim();
-  return trimmed ? trimmed : "-";
-}
-
 const EMPTY_FILTERS: SearchFilters = {
   customer_name: "",
   phone: "",
   tracking_number: "",
 };
+
+const TABLE_COLUMNS = [
+  { key: "customer_name", label: "고객명", width: "16%" },
+  { key: "phone", label: "전화번호", width: "14%" },
+  { key: "tracking_number", label: "송장번호", width: "20%" },
+  { key: "delivery_status", label: "배송상태", width: "14%" },
+  { key: "aligo", label: "알리고", width: "14%" },
+  { key: "sent_date", label: "발송일", width: "12%" },
+] as const;
+
+const TABLE_HEAD_CELL =
+  "px-3 py-3 text-center align-middle text-xs font-semibold uppercase tracking-wide text-zinc-500";
+const TABLE_BODY_CELL =
+  "px-3 py-3 text-center align-middle text-sm text-zinc-700";
+const TABLE_CELL_INNER = "flex items-center justify-center";
 
 export function ShipmentList() {
   const router = useRouter();
@@ -68,6 +82,7 @@ export function ShipmentList() {
   const [copying, setCopying] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [trackingOrder, setTrackingOrder] = useState<OrderListItem | null>(null);
 
   const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
@@ -163,6 +178,39 @@ export function ShipmentList() {
   const goToDetail = (id: string) => {
     router.push(`/orders/${id}`);
   };
+
+  const handleDeliveryStatusClick = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    order: OrderListItem
+  ) => {
+    e.stopPropagation();
+    setTrackingOrder(order);
+  };
+
+  const handleDeliveryTracked = useCallback(
+    (
+      updates: Array<{
+        order_id: string;
+        delivery_status: DeliveryStatus;
+        delivery_location: string | null;
+      }>
+    ) => {
+      if (updates.length === 0) return;
+
+      setOrders((prev) =>
+        prev.map((order) => {
+          const update = updates.find((item) => item.order_id === order.id);
+          if (!update) return order;
+          return {
+            ...order,
+            delivery_status: update.delivery_status,
+            delivery_location: update.delivery_location,
+          };
+        })
+      );
+    },
+    []
+  );
 
   const hasData = !loading && orders.length > 0;
   const exportDisabled = loading || exporting || copying || !hasData;
@@ -340,22 +388,17 @@ export function ShipmentList() {
         ) : (
           <>
             <div className="hidden overflow-x-auto md:block">
-              <table className="min-w-full divide-y divide-zinc-200">
+              <table className="w-full table-fixed divide-y divide-zinc-200">
+                <colgroup>
+                  {TABLE_COLUMNS.map((col) => (
+                    <col key={col.key} style={{ width: col.width }} />
+                  ))}
+                </colgroup>
                 <thead className="bg-zinc-50">
                   <tr>
-                    {[
-                      "고객명",
-                      "전화번호",
-                      "송장번호",
-                      "알리고 상태",
-                      "고객 메모",
-                      "발송일",
-                    ].map((col) => (
-                      <th
-                        key={col}
-                        className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500"
-                      >
-                        {col}
+                    {TABLE_COLUMNS.map((col) => (
+                      <th key={col.key} className={TABLE_HEAD_CELL}>
+                        {col.label}
                       </th>
                     ))}
                   </tr>
@@ -367,20 +410,54 @@ export function ShipmentList() {
                       onClick={() => goToDetail(order.id)}
                       className="cursor-pointer transition hover:bg-zinc-50"
                     >
-                      <td className="px-4 py-3 font-medium text-zinc-900">
-                        <CustomerNameWithBadge
-                          name={order.customer_name}
-                          badge={order.vip_badge}
-                        />
+                      <td className={`${TABLE_BODY_CELL} font-medium text-zinc-900`}>
+                        <div className={TABLE_CELL_INNER}>
+                          <CustomerNameWithBadge
+                            name={order.customer_name}
+                            badge={order.vip_badge}
+                          />
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-zinc-600">
-                        {formatPhone(order.phone)}
+                      <td className={TABLE_BODY_CELL}>
+                        <div
+                          className={`${TABLE_CELL_INNER} tabular-nums whitespace-nowrap`}
+                        >
+                          {formatPhone(order.phone)}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-zinc-600">
-                        {order.tracking_number || "-"}
+                      <td className={TABLE_BODY_CELL}>
+                        <div
+                          className={`${TABLE_CELL_INNER} tabular-nums whitespace-nowrap`}
+                        >
+                          {order.tracking_number || "-"}
+                        </div>
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="space-y-1">
+                      <td className={TABLE_BODY_CELL}>
+                        <div className={TABLE_CELL_INNER}>
+                          {(() => {
+                            const deliveryStatus = resolveListDeliveryStatus(
+                              order.aligo_status,
+                              order.delivery_status
+                            );
+                            if (!deliveryStatus) {
+                              return (
+                                <span className="text-sm text-zinc-400">-</span>
+                              );
+                            }
+                            return (
+                              <DeliveryStatusBadge
+                                status={deliveryStatus}
+                                size="sm"
+                                onClick={(e) =>
+                                  handleDeliveryStatusClick(e, order)
+                                }
+                              />
+                            );
+                          })()}
+                        </div>
+                      </td>
+                      <td className={TABLE_BODY_CELL}>
+                        <div className={`${TABLE_CELL_INNER} flex-col gap-1`}>
                           <AligoStatusBadge
                             status={order.status ?? order.aligo_status}
                             failReason={order.aligo_fail_reason}
@@ -394,20 +471,10 @@ export function ShipmentList() {
                           )}
                         </div>
                       </td>
-                      <td className="max-w-[12rem] px-4 py-3 text-sm text-zinc-600">
-                        <span
-                          className="block truncate"
-                          title={
-                            order.customer_memo?.trim()
-                              ? order.customer_memo
-                              : undefined
-                          }
-                        >
-                          {formatCustomerMemo(order.customer_memo)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-zinc-500">
-                        {formatDateTime(order.sent_at ?? order.created_at)}
+                      <td className={`${TABLE_BODY_CELL} tabular-nums text-zinc-500`}>
+                        <div className={TABLE_CELL_INNER}>
+                          {formatShortSentDate(order.sent_at ?? order.created_at)}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -421,39 +488,49 @@ export function ShipmentList() {
                   key={order.id}
                   type="button"
                   onClick={() => goToDetail(order.id)}
-                  className="w-full px-4 py-4 text-left transition hover:bg-zinc-50"
+                  className="w-full px-4 py-4 text-center transition hover:bg-zinc-50"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-zinc-900">
-                        <CustomerNameWithBadge
-                          name={order.customer_name}
-                          badge={order.vip_badge}
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="font-medium text-zinc-900">
+                      <CustomerNameWithBadge
+                        name={order.customer_name}
+                        badge={order.vip_badge}
+                      />
+                    </p>
+                    <p className="text-sm tabular-nums text-zinc-600">
+                      {formatPhone(order.phone)}
+                    </p>
+                    <p className="text-sm tabular-nums text-zinc-600">
+                      송장 {order.tracking_number || "-"}
+                    </p>
+                    {(() => {
+                      const deliveryStatus = resolveListDeliveryStatus(
+                        order.aligo_status,
+                        order.delivery_status
+                      );
+                      if (!deliveryStatus) return null;
+                      return (
+                        <DeliveryStatusBadge
+                          status={deliveryStatus}
+                          size="sm"
+                          onClick={(e) => handleDeliveryStatusClick(e, order)}
                         />
-                      </p>
-                      <p className="mt-1 text-sm text-zinc-500">
-                        {formatPhone(order.phone)}
-                      </p>
-                    </div>
+                      );
+                    })()}
                     <AligoStatusBadge
                       status={order.status ?? order.aligo_status}
                       failReason={order.aligo_fail_reason}
                       failMessage={order.aligo_fail_message}
                       size="sm"
                     />
-                  </div>
-                  <div className="mt-3 space-y-1 text-xs text-zinc-500">
-                    <p>송장 {order.tracking_number || "-"}</p>
-                    <p
-                      className="truncate"
-                      title={order.customer_memo?.trim() || undefined}
-                    >
-                      메모 {formatCustomerMemo(order.customer_memo)}
-                    </p>
                     {(order.retry_count ?? 0) > 0 && (
-                      <p>재시도 {order.retry_count}회</p>
+                      <p className="text-xs text-zinc-400">
+                        재시도 {order.retry_count}회
+                      </p>
                     )}
-                    <p>{formatDateTime(order.sent_at ?? order.created_at)}</p>
+                    <p className="text-xs tabular-nums text-zinc-500">
+                      {formatShortSentDate(order.sent_at ?? order.created_at)}
+                    </p>
                   </div>
                 </button>
               ))}
@@ -461,6 +538,14 @@ export function ShipmentList() {
           </>
         )}
       </div>
+
+      <DeliveryTrackingModal
+        open={trackingOrder != null}
+        orderId={trackingOrder?.id ?? null}
+        customerName={trackingOrder?.customer_name ?? ""}
+        onClose={() => setTrackingOrder(null)}
+        onTracked={handleDeliveryTracked}
+      />
 
       {!loading && !error && pagination && (
         <Pagination

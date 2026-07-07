@@ -7,6 +7,7 @@
 
 export type { AligoResponseLog } from "./aligo-audit";
 import type { AligoResponseLog } from "./aligo-audit";
+import type { DeliveryTrackingLog } from "./delivery";
 
 export type AligoStatus = "pending" | "success" | "failed";
 
@@ -23,6 +24,8 @@ export type AligoTemplateType =
   | "선물받는분 알림";
 
 export type VipLevel = "normal" | "silver" | "gold";
+
+export type DeliveryStatus = "ready" | "in_transit" | "delivered";
 
 export interface Order {
   id: string;
@@ -44,6 +47,9 @@ export interface Order {
   last_retry_at?: string | null;
   aligo_response?: AligoResponseLog | null;
   sent_at?: string | null;
+  delivery_status?: DeliveryStatus | null;
+  delivery_updated_at?: string | null;
+  delivery_location?: string | null;
 }
 
 export interface Customer {
@@ -93,6 +99,9 @@ export interface Database {
           last_retry_at?: string | null;
           aligo_response?: AligoResponseLog | null;
           sent_at?: string | null;
+          delivery_status?: DeliveryStatus | null;
+          delivery_updated_at?: string | null;
+          delivery_location?: string | null;
         };
         Update: {
           id?: string;
@@ -114,6 +123,33 @@ export interface Database {
           last_retry_at?: string | null;
           aligo_response?: AligoResponseLog | null;
           sent_at?: string | null;
+          delivery_status?: DeliveryStatus | null;
+          delivery_updated_at?: string | null;
+          delivery_location?: string | null;
+        };
+        Relationships: [];
+      };
+      delivery_tracking_logs: {
+        Row: DeliveryTrackingLog;
+        Insert: {
+          id?: string;
+          order_id: string;
+          tracking_number: string;
+          delivery_status: DeliveryStatus;
+          location?: string | null;
+          tracking_time?: string | null;
+          raw_response?: unknown;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          order_id?: string;
+          tracking_number?: string;
+          delivery_status?: DeliveryStatus;
+          location?: string | null;
+          tracking_time?: string | null;
+          raw_response?: unknown;
+          created_at?: string;
         };
         Relationships: [];
       };

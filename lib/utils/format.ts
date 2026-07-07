@@ -53,3 +53,22 @@ export function formatDisplayDate(isoDate: string): string {
 export function formatDateRangeLabel(startDate: string, endDate: string): string {
   return `${formatDisplayDate(startDate)} ~ ${formatDisplayDate(endDate)}`;
 }
+
+/** 발송일 표시 — KST 기준 YY.MM.DD */
+export function formatShortSentDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+  return `${year}.${month}.${day}`;
+}
