@@ -9,3 +9,12 @@ export function resolveListDeliveryStatus(
   if (aligoStatus !== "success") return null;
   return deliveryStatus ?? "ready";
 }
+
+/** 배송조회 API 응답용 */
+export function resolveTrackDeliveryStatus(
+  aligoStatus: string,
+  deliveryStatus?: DeliveryStatus | null
+): DeliveryStatus | null {
+  if (aligoStatus !== "success") return null;
+  return deliveryStatus ?? "ready";
+}

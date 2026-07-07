@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
 import { resolveListDeliveryStatus } from "@/lib/delivery/display";
+import { isEligibleForAutoDeliverySync } from "@/lib/delivery/sync-eligibility";
 import {
   copyOrdersToClipboard,
   downloadOrdersCsv,
@@ -63,6 +64,27 @@ const TABLE_HEAD_CELL =
 const TABLE_BODY_CELL =
   "px-3 py-3 text-center align-middle text-sm text-zinc-700";
 const TABLE_CELL_INNER = "flex items-center justify-center";
+
+function applyDeliveryUpdates(
+  orders: OrderListItem[],
+  updates: Array<{
+    order_id: string;
+    delivery_status: DeliveryStatus;
+    delivery_location: string | null;
+  }>
+): OrderListItem[] {
+  if (updates.length === 0) return orders;
+
+  return orders.map((order) => {
+    const update = updates.find((item) => item.order_id === order.id);
+    if (!update) return order;
+    return {
+      ...order,
+      delivery_status: update.delivery_status,
+      delivery_location: update.delivery_location,
+    };
+  });
+}
 
 export function ShipmentList() {
   const router = useRouter();
@@ -137,6 +159,49 @@ export function ShipmentList() {
             totalPages: json.totalPages,
           });
         }
+
+        const eligibleIds = (json.data ?? [])
+          .filter((order) =>
+            isEligibleForAutoDeliverySync({
+              aligo_status: order.aligo_status,
+              delivery_status: order.delivery_status,
+              delivery_updated_at: order.delivery_updated_at,
+              tracking_number: order.tracking_number,
+            })
+          )
+          .map((order) => order.id);
+
+        if (eligibleIds.length > 0) {
+          void (async () => {
+            try {
+              const syncRes = await fetch("/api/delivery/sync", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ orderIds: eligibleIds }),
+              });
+              const syncJson: {
+                success: boolean;
+                data?: {
+                  updates: Array<{
+                    order_id: string;
+                    delivery_status: DeliveryStatus;
+                    delivery_location: string | null;
+                  }>;
+                };
+              } = await syncRes.json();
+
+              if (cancelled) return;
+
+              if (syncJson.success && syncJson.data?.updates?.length) {
+                setOrders((prev) =>
+                  applyDeliveryUpdates(prev, syncJson.data!.updates)
+                );
+              }
+            } catch {
+              // 자동 갱신 실패는 목록 표시에 영향 없음
+            }
+          })();
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -195,19 +260,7 @@ export function ShipmentList() {
         delivery_location: string | null;
       }>
     ) => {
-      if (updates.length === 0) return;
-
-      setOrders((prev) =>
-        prev.map((order) => {
-          const update = updates.find((item) => item.order_id === order.id);
-          if (!update) return order;
-          return {
-            ...order,
-            delivery_status: update.delivery_status,
-            delivery_location: update.delivery_location,
-          };
-        })
-      );
+      setOrders((prev) => applyDeliveryUpdates(prev, updates));
     },
     []
   );

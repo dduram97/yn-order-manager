@@ -24,6 +24,12 @@ export const DELIVERY_STATUS_DOT: Record<DeliveryStatus, string> = {
   delivered: "bg-emerald-500",
 };
 
+/** 발송현황 자동 배송조회 최소 간격 (30분) */
+export const DELIVERY_AUTO_SYNC_MIN_INTERVAL_MS = 30 * 60 * 1000;
+
+/** 자동 배송조회 1회 최대 건수 (목록 페이지 limit과 동일) */
+export const DELIVERY_AUTO_SYNC_MAX_ORDERS = 20;
+
 export const DELIVERY_STATUS_STYLE: Record<
   DeliveryStatus,
   { bg: string; text: string; dot: string }

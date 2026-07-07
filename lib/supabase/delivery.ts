@@ -86,6 +86,51 @@ export async function updateOrderDeliveryStatus(
   };
 }
 
+export async function touchDeliveryUpdatedAt(
+  supabase: ServerSupabaseClient,
+  orderId: string,
+  updatedAt = new Date().toISOString()
+) {
+  const { error } = await supabase
+    .from("orders")
+    .update({ delivery_updated_at: updatedAt } as never)
+    .eq("id", orderId);
+
+  return {
+    error: error as { message: string; code?: string } | null,
+  };
+}
+
+export async function listOrdersForDeliverySync(
+  supabase: ServerSupabaseClient,
+  orderIds: string[]
+) {
+  if (orderIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .select(DELIVERY_ORDER_COLUMNS)
+    .in("id", orderIds);
+
+  return {
+    data: (data ?? []) as Pick<
+      Order,
+      | "id"
+      | "group_id"
+      | "customer_name"
+      | "phone"
+      | "tracking_number"
+      | "aligo_status"
+      | "delivery_status"
+      | "delivery_location"
+      | "delivery_updated_at"
+    >[],
+    error: error as { message: string; code?: string } | null,
+  };
+}
+
 export async function insertDeliveryTrackingLog(
   supabase: ServerSupabaseClient,
   input: {
