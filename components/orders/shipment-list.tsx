@@ -6,6 +6,7 @@ import { AligoStatusBadge } from "@/components/orders/aligo-status-badge";
 import { CustomerNameWithBadge } from "@/components/orders/customer-name-with-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Pagination } from "@/components/ui/pagination";
 import {
   copyOrdersToClipboard,
   downloadOrdersCsv,
@@ -16,12 +17,16 @@ import {
   formatPhone,
   getDefaultDateRange,
 } from "@/lib/utils/format";
-import type { OrderListItem } from "@/types/order";
+import type { OrderListItem, OrderListPagination } from "@/types/order";
 
 interface OrdersApiResponse {
   success: boolean;
   data: OrderListItem[];
   count?: number;
+  totalCount?: number;
+  currentPage?: number;
+  totalPages?: number;
+  pagination?: OrderListPagination;
   startDate?: string;
   endDate?: string;
   message?: string;
@@ -54,8 +59,10 @@ export function ShipmentList() {
   const [draftFilters, setDraftFilters] = useState<SearchFilters>(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] =
     useState<SearchFilters>(EMPTY_FILTERS);
+  const [page, setPage] = useState(1);
 
   const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [pagination, setPagination] = useState<OrderListPagination | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [copying, setCopying] = useState(false);
@@ -72,7 +79,12 @@ export function ShipmentList() {
       setError(null);
       setExportMessage(null);
 
-      const params = new URLSearchParams({ startDate, endDate });
+      const params = new URLSearchParams({
+        startDate,
+        endDate,
+        page: String(page),
+        limit: "20",
+      });
       if (appliedFilters.customer_name) {
         params.set("customer_name", appliedFilters.customer_name);
       }
@@ -96,6 +108,20 @@ export function ShipmentList() {
         }
 
         setOrders(json.data ?? []);
+        if (json.pagination) {
+          setPagination(json.pagination);
+        } else if (
+          json.totalCount != null &&
+          json.currentPage != null &&
+          json.totalPages != null
+        ) {
+          setPagination({
+            page: json.currentPage,
+            limit: 20,
+            totalCount: json.totalCount,
+            totalPages: json.totalPages,
+          });
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -113,10 +139,11 @@ export function ShipmentList() {
     return () => {
       cancelled = true;
     };
-  }, [startDate, endDate, appliedFilters]);
+  }, [startDate, endDate, appliedFilters, page]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    setPage(1);
     setAppliedFilters({
       customer_name: draftFilters.customer_name.trim(),
       phone: draftFilters.phone.trim(),
@@ -130,6 +157,7 @@ export function ShipmentList() {
     setEndDate(range.endDate);
     setDraftFilters(EMPTY_FILTERS);
     setAppliedFilters(EMPTY_FILTERS);
+    setPage(1);
   };
 
   const goToDetail = (id: string) => {
@@ -321,7 +349,7 @@ export function ShipmentList() {
                       "송장번호",
                       "알리고 상태",
                       "고객 메모",
-                      "생성일",
+                      "발송일",
                     ].map((col) => (
                       <th
                         key={col}
@@ -379,7 +407,7 @@ export function ShipmentList() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-zinc-500">
-                        {formatDateTime(order.created_at)}
+                        {formatDateTime(order.sent_at ?? order.created_at)}
                       </td>
                     </tr>
                   ))}
@@ -425,7 +453,7 @@ export function ShipmentList() {
                     {(order.retry_count ?? 0) > 0 && (
                       <p>재시도 {order.retry_count}회</p>
                     )}
-                    <p>{formatDateTime(order.created_at)}</p>
+                    <p>{formatDateTime(order.sent_at ?? order.created_at)}</p>
                   </div>
                 </button>
               ))}
@@ -434,7 +462,16 @@ export function ShipmentList() {
         )}
       </div>
 
-      {!loading && !error && (
+      {!loading && !error && pagination && (
+        <Pagination
+          page={pagination.page}
+          totalPages={pagination.totalPages}
+          totalCount={pagination.totalCount}
+          onPageChange={setPage}
+        />
+      )}
+
+      {!loading && !error && !pagination && (
         <p className="text-sm text-zinc-500">
           {orders.length.toLocaleString()}건 표시
         </p>

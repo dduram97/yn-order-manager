@@ -59,3 +59,10 @@ export function clearSavedEmailOnLogout(): void {
     localStorage.removeItem(REMEMBER_EMAIL_STORAGE_KEY);
   }
 }
+
+/** 아이디 변경 후 저장된 이메일 갱신 */
+export function updateSavedEmail(newEmail: string): void {
+  if (localStorage.getItem(REMEMBER_EMAIL_KEY) === "true") {
+    localStorage.setItem(SAVED_EMAIL_KEY, newEmail);
+  }
+}

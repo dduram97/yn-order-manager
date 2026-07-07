@@ -6,6 +6,18 @@ interface PaginationProps {
   onPageChange: (page: number) => void;
 }
 
+function getPageNumbers(current: number, total: number): number[] {
+  if (total <= 5) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+
+  let start = Math.max(1, current - 2);
+  const end = Math.min(total, start + 4);
+  start = Math.max(1, end - 4);
+
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
 export function Pagination({
   page,
   totalPages,
@@ -15,13 +27,15 @@ export function Pagination({
 }: PaginationProps) {
   if (totalPages <= 1) return null;
 
+  const pages = getPageNumbers(page, totalPages);
+
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-zinc-500">
         총 {totalCount.toLocaleString()}
         {unit} · {page}/{totalPages} 페이지
       </p>
-      <div className="flex gap-2">
+      <div className="flex items-center gap-1">
         <button
           type="button"
           disabled={page <= 1}
@@ -30,6 +44,21 @@ export function Pagination({
         >
           이전
         </button>
+        {pages.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => onPageChange(p)}
+            aria-current={p === page ? "page" : undefined}
+            className={`min-w-[2.25rem] rounded-lg border px-3 py-2 text-sm font-medium transition ${
+              p === page
+                ? "border-zinc-900 bg-zinc-900 text-white"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+            }`}
+          >
+            {p}
+          </button>
+        ))}
         <button
           type="button"
           disabled={page >= totalPages}

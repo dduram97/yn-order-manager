@@ -34,14 +34,25 @@ import type { AligoResponseLog } from "@/types/aligo-audit";
 interface OrderApiResponse {
   success: boolean;
   data: Order;
+  tracking_numbers?: string[];
   message?: string;
   errors?: { field: string; message: string }[];
+}
+
+interface SendResultItem {
+  success: boolean;
+  orderId: string | null;
+  tracking_number: string | null;
+  failReason?: AligoFailReason | null;
+  failMessage?: string | null;
+  retryCount?: number | null;
 }
 
 interface SendApiResponse {
   success: boolean;
   message: string;
   data: Order;
+  results?: SendResultItem[];
   failReason?: AligoFailReason;
   failMessage?: string;
   retryCount?: number;
@@ -82,9 +93,13 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
     useState<AligoTemplateType>(DEFAULT_ALIGO_TEMPLATE_TYPE);
   const [createdAt, setCreatedAt] = useState("");
 
-  const applyOrder = (order: Order) => {
+  const applyOrder = (order: Order, trackingNums?: string[]) => {
     setFieldValues(orderToFieldValues(order));
-    setTrackingNumbers([order.tracking_number || ""]);
+    const nums =
+      trackingNums && trackingNums.length > 0
+        ? trackingNums
+        : [order.tracking_number || ""];
+    setTrackingNumbers(nums.length > 0 ? nums : [""]);
     setMemo(order.memo ?? "");
     setAligoStatus(order.aligo_status);
     setAligoFailReason(order.aligo_fail_reason ?? null);
@@ -111,7 +126,7 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
           throw new Error(json.message || "주문을 찾을 수 없습니다.");
         }
 
-        applyOrder(json.data);
+        applyOrder(json.data, json.tracking_numbers);
         setCreatedAt(json.data.created_at);
       } catch (err) {
         setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -230,7 +245,23 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
 
       applyOrder(json.data);
 
-      if (json.success) {
+      if (json.results && json.results.length > 1) {
+        const successCount = json.results.filter((r) => r.success).length;
+        if (json.success) {
+          showToast(`알림톡 발송 완료 (${successCount}/${json.results.length}건)`);
+          setSendMessage(null);
+        } else {
+          const failed = json.results.filter((r) => !r.success);
+          const detail = failed
+            .map((r) => `${r.tracking_number ?? "?"}: ${r.failMessage ?? "실패"}`)
+            .join(", ");
+          showToast(
+            `일부 발송 실패 (${successCount}/${json.results.length}건) — ${detail}`,
+            "error"
+          );
+          setSendMessage(detail);
+        }
+      } else if (json.success) {
         showToast("알림톡 발송이 완료되었습니다.");
         setSendMessage(null);
       } else {

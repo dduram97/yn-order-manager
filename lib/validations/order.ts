@@ -443,6 +443,11 @@ export function parseOrderListQueryParams(searchParams: URLSearchParams): {
     return dateResult;
   }
 
+  const pageResult = parseOrderListParams(searchParams);
+  if (!pageResult.success) {
+    return pageResult;
+  }
+
   const customerNameRaw = searchParams.get("customer_name");
   const phoneRaw = searchParams.get("phone");
   const trackingRaw = searchParams.get("tracking_number");
@@ -466,6 +471,8 @@ export function parseOrderListQueryParams(searchParams: URLSearchParams): {
     success: true,
     data: {
       ...dateResult.data,
+      page: pageResult.data.page,
+      limit: pageResult.data.limit,
       customer_name,
       phone,
       tracking_number,

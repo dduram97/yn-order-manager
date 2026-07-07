@@ -49,6 +49,14 @@ export function UserMenu({ onLogout }: UserMenuProps) {
           className="absolute right-0 z-30 mt-1 min-w-[10rem] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg"
         >
           <Link
+            href="/account/email"
+            role="menuitem"
+            className="block px-3 py-2.5 text-sm text-zinc-700 transition hover:bg-zinc-50 max-md:min-h-11 max-md:py-3"
+            onClick={() => setOpen(false)}
+          >
+            아이디 변경
+          </Link>
+          <Link
             href="/account/password"
             role="menuitem"
             className="block px-3 py-2.5 text-sm text-zinc-700 transition hover:bg-zinc-50 max-md:min-h-11 max-md:py-3"

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/require-auth";
 import { createClient } from "@/lib/supabase/server";
-import { getOrderById, updateOrder } from "@/lib/supabase/orders";
+import { getOrderById, listOrdersByGroupId, updateOrder } from "@/lib/supabase/orders";
 import {
   validateOrderId,
   validateUpdateOrderInput,
@@ -75,9 +75,22 @@ export async function GET(
       `[GET /api/orders/[id]] ✅ 조회 성공 (id: ${data.id}, ${elapsed}ms)`
     );
 
+    let tracking_numbers = [data.tracking_number].filter((v) => v.trim() !== "");
+
+    if (data.group_id) {
+      const { data: siblings } = await listOrdersByGroupId(
+        supabase,
+        data.group_id
+      );
+      if (siblings && siblings.length > 0) {
+        tracking_numbers = siblings.map((s) => s.tracking_number);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data,
+      tracking_numbers,
       elapsedMs: elapsed,
     });
   } catch (err) {

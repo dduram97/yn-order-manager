@@ -41,10 +41,19 @@ export interface OrderListDateRangeParams {
 }
 
 export interface OrderListQueryParams extends OrderListDateRangeParams {
+  page?: number;
+  limit?: number;
   customer_name?: string;
   phone?: string;
   /** 송장번호 검색 */
   tracking_number?: string;
+}
+
+export interface OrderListResponse {
+  data: OrderListItem[];
+  totalCount: number;
+  currentPage: number;
+  totalPages: number;
 }
 
 export interface OrderListItem {

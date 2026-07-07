@@ -52,3 +52,27 @@ export async function updateUserPasswordHash(
 
   return { ok: true };
 }
+
+export async function updateUserEmail(
+  userId: string,
+  email: string
+): Promise<{ ok: true } | { ok: false; message: string; code?: string }> {
+  const supabase = createAdminClient();
+  const normalized = email.toLowerCase().trim();
+  const payload: Database["public"]["Tables"]["users"]["Update"] = {
+    email: normalized,
+  };
+  const { error } = await supabase
+    .from("users")
+    .update(payload as never)
+    .eq("id", userId);
+
+  if (error) {
+    if (error.code === "23505") {
+      return { ok: false, message: "이미 사용 중인 아이디입니다.", code: error.code };
+    }
+    return { ok: false, message: error.message, code: error.code };
+  }
+
+  return { ok: true };
+}

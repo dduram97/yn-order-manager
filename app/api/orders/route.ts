@@ -54,7 +54,7 @@ export async function GET(request: Request) {
     });
 
     const supabase = await createClient();
-    const { data, error } = await listShipmentOrders(supabase, parsed.data);
+    const { data, pagination, error } = await listShipmentOrders(supabase, parsed.data);
     const elapsed = Date.now() - startedAt;
 
     if (error) {
@@ -79,6 +79,10 @@ export async function GET(request: Request) {
       success: true,
       data,
       count: data.length,
+      totalCount: pagination.totalCount,
+      currentPage: pagination.page,
+      totalPages: pagination.totalPages,
+      pagination,
       startDate,
       endDate,
       elapsedMs: elapsed,

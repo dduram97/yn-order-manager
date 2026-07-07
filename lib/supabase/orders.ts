@@ -58,7 +58,7 @@ export async function insertOrder(
 
 /** 상세/수정 조회용 컬럼 */
 const ORDER_DETAIL_COLUMNS =
-  "id, customer_name, phone, tracking_number, sender_name, receiver_name, memo, sent_date, created_at, aligo_status, aligo_template_type, aligo_fail_reason, aligo_fail_message, retry_count, last_retry_at, aligo_response, sent_at";
+  "id, group_id, customer_name, phone, tracking_number, sender_name, receiver_name, memo, sent_date, created_at, aligo_status, aligo_template_type, aligo_fail_reason, aligo_fail_message, retry_count, last_retry_at, aligo_response, sent_at";
 
 const ORDER_DETAIL_COLUMNS_LEGACY =
   "id, customer_name, phone, tracking_number, sender_name, receiver_name, memo, sent_date, created_at, aligo_status, aligo_template_type";
@@ -114,6 +114,26 @@ export async function getOrderById(
   id: string
 ) {
   return getOrderDetailById(supabase, id);
+}
+
+/** group_id로 묶인 송장 목록 조회 (여러 송장 발송) */
+export async function listOrdersByGroupId(
+  supabase: ServerSupabaseClient,
+  groupId: string
+) {
+  const { data, error } = await supabase
+    .from("orders")
+    .select("id, tracking_number, aligo_status, sent_at, created_at")
+    .eq("group_id", groupId)
+    .order("created_at", { ascending: true });
+
+  return {
+    data: (data ?? []) as Pick<
+      Order,
+      "id" | "tracking_number" | "aligo_status" | "sent_at" | "created_at"
+    >[],
+    error: error as { message: string; code?: string } | null,
+  };
 }
 
 export async function updateOrder(
@@ -207,13 +227,14 @@ export async function recordAligoSendOutcome(
 async function queryListOrders(
   supabase: ServerSupabaseClient,
   params: OrderListQueryParams,
-  columns: string
+  columns: string,
+  options?: { countOnly?: boolean; range?: { from: number; to: number } }
 ) {
   const { startAt, endAt, customer_name, phone, tracking_number } = params;
 
   let query = supabase
     .from("orders")
-    .select(columns)
+    .select(columns, options?.countOnly ? { count: "exact", head: true } : { count: "exact" })
     .gte("created_at", startAt)
     .lte("created_at", endAt);
 
@@ -232,7 +253,15 @@ async function queryListOrders(
     );
   }
 
-  return query.order("created_at", { ascending: false });
+  query = query
+    .order("sent_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+
+  if (options?.range) {
+    query = query.range(options.range.from, options.range.to);
+  }
+
+  return query;
 }
 
 function mapOrderListRow(
@@ -254,21 +283,37 @@ export async function listOrders(
   supabase: ServerSupabaseClient,
   params: OrderListQueryParams
 ) {
+  const page = params.page ?? 1;
+  const limit = params.limit ?? 20;
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
+
   let result = await queryListOrders(
     supabase,
     params,
-    `${ORDER_LIST_COLUMNS_WITH_FAIL}, aligo_response`
+    `${ORDER_LIST_COLUMNS_WITH_FAIL}, aligo_response`,
+    { range: { from, to } }
   );
 
   if (result.error?.code === "42703") {
-    result = await queryListOrders(supabase, params, ORDER_LIST_COLUMNS_WITH_FAIL);
+    result = await queryListOrders(
+      supabase,
+      params,
+      ORDER_LIST_COLUMNS_WITH_FAIL,
+      { range: { from, to } }
+    );
   }
 
   if (result.error?.code === "42703") {
-    result = await queryListOrders(supabase, params, ORDER_LIST_COLUMNS_BASE);
+    result = await queryListOrders(
+      supabase,
+      params,
+      ORDER_LIST_COLUMNS_BASE,
+      { range: { from, to } }
+    );
   }
 
-  const { data, error } = result;
+  const { data, error, count } = result;
 
   type OrderListRow = Omit<OrderListItem, "customer_memo" | "status"> & {
     memo?: string | null;
@@ -276,9 +321,17 @@ export async function listOrders(
   };
 
   const rows = (data ?? []) as OrderListRow[];
+  const totalCount = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
 
   return {
     data: rows.map(mapOrderListRow),
+    pagination: {
+      page,
+      limit,
+      totalCount,
+      totalPages,
+    },
     error: error as { message: string; code?: string } | null,
   };
 }
