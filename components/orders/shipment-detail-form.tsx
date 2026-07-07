@@ -33,25 +33,14 @@ import type { AligoResponseLog } from "@/types/aligo-audit";
 interface OrderApiResponse {
   success: boolean;
   data: Order;
-  tracking_numbers?: string[];
   message?: string;
   errors?: { field: string; message: string }[];
-}
-
-interface SendResultItem {
-  success: boolean;
-  orderId: string | null;
-  tracking_number: string | null;
-  failReason?: AligoFailReason | null;
-  failMessage?: string | null;
-  retryCount?: number | null;
 }
 
 interface SendApiResponse {
   success: boolean;
   message: string;
   data: Order;
-  results?: SendResultItem[];
   failReason?: AligoFailReason;
   failMessage?: string;
   retryCount?: number;
@@ -75,7 +64,6 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
 
   const [fieldValues, setFieldValues] =
     useState<TemplateFieldValues>(createEmptyFieldValues);
-  const [trackingNumbers, setTrackingNumbers] = useState<string[]>([""]);
   const [memo, setMemo] = useState("");
   const [aligoStatus, setAligoStatus] = useState<AligoStatus>("pending");
   const [aligoFailReason, setAligoFailReason] =
@@ -90,15 +78,9 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
   const [aligoTemplateType, setAligoTemplateType] =
     useState<AligoTemplateType>(DEFAULT_ALIGO_TEMPLATE_TYPE);
   const [createdAt, setCreatedAt] = useState("");
-  const [sendResults, setSendResults] = useState<SendResultItem[] | null>(null);
 
-  const applyOrder = (order: Order, trackingNums?: string[]) => {
+  const applyOrder = (order: Order) => {
     setFieldValues(orderToFieldValues(order));
-    const nums =
-      trackingNums && trackingNums.length > 0
-        ? trackingNums
-        : [order.tracking_number || ""];
-    setTrackingNumbers(nums.length > 0 ? nums : [""]);
     setMemo(order.memo ?? "");
     setAligoStatus(order.aligo_status);
     setAligoFailReason(order.aligo_fail_reason ?? null);
@@ -125,7 +107,7 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
           throw new Error(json.message || "주문을 찾을 수 없습니다.");
         }
 
-        applyOrder(json.data, json.tracking_numbers);
+        applyOrder(json.data);
         setCreatedAt(json.data.created_at);
       } catch (err) {
         setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -137,14 +119,6 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
     void fetchOrder();
   }, [orderId]);
 
-  const refetchOrder = async () => {
-    const res = await fetch(`/api/orders/${orderId}`);
-    const json: OrderApiResponse = await res.json();
-    if (res.ok && json.success) {
-      applyOrder(json.data, json.tracking_numbers);
-    }
-  };
-
   const buildPayload = () => {
     const orderData = fieldValuesToOrderData(fieldValues);
     const customer_name = resolveListCustomerNameByType(
@@ -152,20 +126,12 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
       orderData
     );
 
-    const cleanedTrackingNumbers = trackingNumbers
-      .map((v) => v.trim())
-      .filter((v) => v !== "");
-
-    const firstTracking =
-      cleanedTrackingNumbers[0] ?? orderData.tracking_number.trim();
-
     return {
       customer_name,
       phone: orderData.phone,
       sender_name: orderData.sender_name,
       receiver_name: orderData.receiver_name,
-      tracking_number: firstTracking,
-      tracking_numbers: cleanedTrackingNumbers,
+      tracking_number: orderData.tracking_number,
       memo: memo.trim() === "" ? null : memo,
       aligo_template_type: aligoTemplateType,
     };
@@ -175,32 +141,6 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
     setSaveMessage(null);
     setSendMessage(null);
-  };
-
-  const handleTrackingChange = (index: number, value: string) => {
-    setTrackingNumbers((prev) => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
-
-    if (index === 0) {
-      handleFieldChange("tracking_number", value);
-    }
-  };
-
-  const handleAddTracking = () => {
-    setTrackingNumbers((prev) => [...prev, ""]);
-  };
-
-  const handleRemoveTracking = (index: number) => {
-    setTrackingNumbers((prev) => {
-      if (prev.length <= 1) return prev;
-      const next = prev.filter((_, i) => i !== index);
-      const first = next[0] ?? "";
-      setFieldValues((fv) => ({ ...fv, tracking_number: first }));
-      return next;
-    });
   };
 
   const handleSave = async () => {
@@ -233,15 +173,8 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
   };
 
   const handleSend = async () => {
-    const payload = buildPayload();
-    if (payload.tracking_numbers.length === 0) {
-      showToast("송장번호를 하나 이상 입력해주세요.", "error");
-      return;
-    }
-
     setSending(true);
     setSendMessage(null);
-    setSendResults(null);
     setError(null);
     setAligoStatus("pending");
     setAligoFailReason(null);
@@ -251,7 +184,7 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
       const res = await fetch(`/api/orders/${orderId}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(buildPayload()),
       });
 
       const json: SendApiResponse = await res.json();
@@ -260,29 +193,9 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
         throw new Error(json.message || "알림톡 발송에 실패했습니다.");
       }
 
-      if (json.results && json.results.length > 0) {
-        setSendResults(json.results);
-      }
+      applyOrder(json.data);
 
-      await refetchOrder();
-
-      if (json.results && json.results.length > 1) {
-        const successCount = json.results.filter((r) => r.success).length;
-        if (json.success) {
-          showToast(`알림톡 발송 완료 (${successCount}/${json.results.length}건)`);
-          setSendMessage(null);
-        } else {
-          const failed = json.results.filter((r) => !r.success);
-          const detail = failed
-            .map((r) => `${r.tracking_number ?? "?"}: ${r.failMessage ?? "실패"}`)
-            .join(", ");
-          showToast(
-            `일부 발송 실패 (${successCount}/${json.results.length}건) — ${detail}`,
-            "error"
-          );
-          setSendMessage(detail);
-        }
-      } else if (json.success) {
+      if (json.success) {
         showToast("알림톡 발송이 완료되었습니다.");
         setSendMessage(null);
       } else {
@@ -305,15 +218,8 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
   };
 
   const handleResend = async () => {
-    const payload = buildPayload();
-    if (payload.tracking_numbers.length === 0) {
-      showToast("송장번호를 하나 이상 입력해주세요.", "error");
-      return;
-    }
-
     setResending(true);
     setError(null);
-    setSendResults(null);
     setAligoStatus("pending");
     setAligoFailReason(null);
     setAligoFailMessage(null);
@@ -322,7 +228,6 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
       const res = await fetch(`/api/orders/${orderId}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       });
 
       const json: SendApiResponse = await res.json();
@@ -331,26 +236,11 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
         throw new Error(json.message || "재발송에 실패했습니다.");
       }
 
-      if (json.results && json.results.length > 0) {
-        setSendResults(json.results);
+      if (json.data) {
+        applyOrder(json.data);
       }
 
-      await refetchOrder();
-
-      if (json.results && json.results.length > 1) {
-        const successCount = json.results.filter((r) => r.success).length;
-        if (json.success) {
-          showToast(`재발송 완료 (${successCount}/${json.results.length}건)`);
-          setSendMessage(null);
-        } else {
-          const failed = json.results.filter((r) => !r.success);
-          const detail = failed
-            .map((r) => `${r.tracking_number ?? "?"}: ${r.failMessage ?? "실패"}`)
-            .join(", ");
-          showToast(`${detail}`, "error");
-          setSendMessage(detail);
-        }
-      } else if (json.success) {
+      if (json.success) {
         showToast("재발송 성공");
         setSendMessage(null);
       } else {
@@ -423,51 +313,6 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card
-            title="송장번호"
-            description={
-              readOnly
-                ? "등록된 송장번호입니다."
-                : "여러 박스인 경우 송장번호를 추가한 뒤 한 번에 발송할 수 있습니다."
-            }
-          >
-            <div className="space-y-2">
-              {trackingNumbers.map((value, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <input
-                    value={value}
-                    onChange={(e) => handleTrackingChange(index, e.target.value)}
-                    disabled={isBusy || readOnly}
-                    placeholder="송장번호"
-                    aria-label={`송장번호 ${index + 1}`}
-                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10 disabled:bg-zinc-50 disabled:text-zinc-600"
-                  />
-                  {trackingNumbers.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveTracking(index)}
-                      disabled={isBusy || readOnly}
-                      className="shrink-0 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
-                    >
-                      X
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={handleAddTracking}
-                disabled={isBusy}
-                className="mt-3 w-full rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-100 disabled:opacity-50 max-md:min-h-12"
-              >
-                + 송장 추가
-              </button>
-            )}
-          </Card>
-
-          <Card
             title="발송 정보"
             description={
               readOnly
@@ -479,7 +324,6 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
               templateType={aligoTemplateType}
               values={fieldValues}
               onChange={handleFieldChange}
-              omitKeys={["tracking_number"]}
               disabled={readOnly}
             />
           </Card>
@@ -498,48 +342,10 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
           <Card title="입력 요약">
             <TemplateVariableSummary
               templateType={aligoTemplateType}
-              values={{
-                ...fieldValues,
-                tracking_number:
-                  trackingNumbers
-                    .map((v) => v.trim())
-                    .filter(Boolean)
-                    .join(", ") || fieldValues.tracking_number,
-              }}
+              values={fieldValues}
               formatPhone={formatPhone}
             />
           </Card>
-
-          {sendResults && sendResults.length > 0 && (
-            <Card title="발송 결과" description="송장별 알림톡 발송 결과입니다.">
-              <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200">
-                {sendResults.map((result, index) => (
-                  <li
-                    key={`${result.orderId ?? index}-${result.tracking_number ?? index}`}
-                    className="flex items-center justify-between gap-3 px-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-900">
-                        {result.tracking_number || "-"}
-                      </p>
-                      {!result.success && result.failMessage && (
-                        <p className="mt-0.5 truncate text-xs text-red-600">
-                          {result.failMessage}
-                        </p>
-                      )}
-                    </div>
-                    <span
-                      className={`shrink-0 text-xs font-semibold ${
-                        result.success ? "text-emerald-600" : "text-red-600"
-                      }`}
-                    >
-                      {result.success ? "성공" : "실패"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
         </div>
 
         <div className="space-y-6">

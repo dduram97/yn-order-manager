@@ -6,6 +6,7 @@ export interface CreateOrderInput {
   customer_name: string;
   phone: string;
   tracking_number?: string;
+  tracking_numbers?: string[];
   sender_name?: string;
   receiver_name?: string;
   memo?: string;

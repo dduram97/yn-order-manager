@@ -86,6 +86,27 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
   }
 
   const templateTypeRaw = (body as Record<string, unknown>).aligo_template_type;
+  const trackingNumbersRaw = (body as Record<string, unknown>).tracking_numbers;
+
+  if (trackingNumbersRaw !== undefined && trackingNumbersRaw !== null) {
+    if (!Array.isArray(trackingNumbersRaw)) {
+      errors.push({
+        field: "tracking_numbers",
+        message: "tracking_numbers는 문자열 배열이어야 합니다.",
+      });
+    } else {
+      for (const item of trackingNumbersRaw) {
+        if (typeof item !== "string") {
+          errors.push({
+            field: "tracking_numbers",
+            message: "송장번호는 문자열이어야 합니다.",
+          });
+          break;
+        }
+      }
+    }
+  }
+
   if (
     templateTypeRaw !== undefined &&
     templateTypeRaw !== null &&
@@ -103,13 +124,36 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
     return { success: false, errors };
   }
 
+  const parsedTrackingNumbers = Array.isArray(trackingNumbersRaw)
+    ? Array.from(
+        new Set(
+          trackingNumbersRaw
+            .map((v) => (typeof v === "string" ? v.trim() : ""))
+            .filter((v) => v !== "")
+        )
+      )
+    : undefined;
+
+  const singleTracking =
+    typeof tracking_number === "string" ? tracking_number.trim() : "";
+
+  const resolvedTrackingNumbers =
+    parsedTrackingNumbers && parsedTrackingNumbers.length > 0
+      ? parsedTrackingNumbers
+      : singleTracking !== ""
+        ? [singleTracking]
+        : undefined;
+
+  const firstTracking =
+    resolvedTrackingNumbers?.[0] ?? singleTracking;
+
   return {
     success: true,
     data: {
       customer_name: (customer_name as string).trim(),
       phone: normalizePhone((phone as string).trim()),
-      tracking_number:
-        typeof tracking_number === "string" ? tracking_number.trim() : "",
+      tracking_number: firstTracking,
+      tracking_numbers: resolvedTrackingNumbers,
       sender_name:
         typeof sender_name === "string" && sender_name.trim() !== ""
           ? sender_name.trim()

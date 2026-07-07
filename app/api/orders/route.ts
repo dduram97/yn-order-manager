@@ -10,6 +10,7 @@ import { createClient } from "@/lib/supabase/server";
 import { syncCustomerVipByPhone } from "@/lib/supabase/vip";
 import { insertOrder } from "@/lib/supabase/orders";
 import { listShipmentOrders } from "@/lib/services/order.service";
+import type { OrderAligoSendResult } from "@/lib/services/order.service";
 import {
   getTodayDateString,
   parseOrderListQueryParams,
@@ -142,16 +143,24 @@ export async function POST(request: Request) {
       );
     }
 
-    const { customer_name, phone, tracking_number, memo, sender_name, receiver_name } =
+    const { customer_name, phone, tracking_number, tracking_numbers, memo, sender_name, receiver_name } =
       validation.data;
     const templateType =
       validation.data.aligo_template_type ?? DEFAULT_ALIGO_TEMPLATE_TYPE;
     const sent_date = getTodayDateString();
 
+    const numbers =
+      tracking_numbers && tracking_numbers.length > 0
+        ? tracking_numbers
+        : [tracking_number ?? ""];
+
+    const groupId = numbers.length > 1 ? crypto.randomUUID() : null;
+
     console.log("[POST /api/orders] 저장 데이터:", {
       customer_name,
       phone,
-      tracking_number: tracking_number || "(없음)",
+      tracking_count: numbers.length,
+      tracking_numbers: numbers,
       memo: memo ?? "(없음)",
       sent_date,
       aligo_status: "pending",
@@ -175,43 +184,82 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data, error } = await insertOrder(supabase, {
-      customer_name,
-      phone,
-      tracking_number: tracking_number ?? "",
-      sender_name: sender_name ?? null,
-      receiver_name: receiver_name ?? null,
-      memo: memo ?? null,
-      sent_date,
-      aligo_status: "pending",
-      aligo_template_type: templateType,
-    });
+    const results: OrderAligoSendResult[] = [];
+    let firstOrderData = null;
 
-    const elapsed = Date.now() - startedAt;
+    for (const tn of numbers) {
+      const { data, error } = await insertOrder(supabase, {
+        ...(groupId ? { group_id: groupId } : {}),
+        customer_name,
+        phone,
+        tracking_number: tn,
+        sender_name: sender_name ?? null,
+        receiver_name: receiver_name ?? null,
+        memo: memo ?? null,
+        sent_date,
+        aligo_status: "pending",
+        aligo_template_type: templateType,
+      });
 
-    if (error || !data) {
-      console.error(
-        "[POST /api/orders] ❌ Supabase 오류:",
-        error?.message ?? "저장된 데이터가 없습니다."
-      );
-      if (error) {
-        console.error("[POST /api/orders] 상세:", JSON.stringify(error));
+      if (error || !data) {
+        console.error(
+          "[POST /api/orders] ❌ Supabase 오류:",
+          error?.message ?? "저장된 데이터가 없습니다."
+        );
+
+        return NextResponse.json(
+          {
+            success: false,
+            message: "주문 저장 중 오류가 발생했습니다.",
+            error: error?.message ?? "저장된 데이터가 없습니다.",
+            code: error?.code ?? null,
+            elapsedMs: Date.now() - startedAt,
+          },
+          { status: 500 }
+        );
       }
 
-      return NextResponse.json(
-        {
+      if (!firstOrderData) {
+        firstOrderData = data;
+      }
+
+      let aligoSendResult: OrderAligoSendResult | null = null;
+
+      try {
+        aligoSendResult = await executeOrderAligoSend(supabase, data, {
+          incrementRetry: false,
+        });
+        results.push(aligoSendResult);
+
+        if (aligoSendResult.success) {
+          console.log(
+            `[POST /api/orders] Aligo 발송 성공 (${tn}): ${aligoSendResult.message}`
+          );
+        } else {
+          console.error(
+            `[POST /api/orders] Aligo 발송 실패 (${tn}): ${aligoSendResult.failReason}`,
+            aligoSendResult.failMessage
+          );
+        }
+      } catch (aligoError) {
+        const message =
+          aligoError instanceof Error ? aligoError.message : String(aligoError);
+        console.error("[POST /api/orders] ⚠️ Aligo 발송 처리 예외:", message);
+        results.push({
           success: false,
-          message: "주문 저장 중 오류가 발생했습니다.",
-          error: error?.message ?? "저장된 데이터가 없습니다.",
-          code: error?.code ?? null,
-          elapsedMs: elapsed,
-        },
-        { status: 500 }
-      );
+          message,
+          order: data,
+        });
+      }
     }
 
+    const elapsed = Date.now() - startedAt;
+    const orderData = results[0]?.order ?? firstOrderData;
+    const allSuccess = results.every((r) => r.success);
+    const firstResult = results[0];
+
     console.log(
-      `[POST /api/orders] ✅ 주문 등록 성공 (id: ${data.id}, ${elapsed}ms)`
+      `[POST /api/orders] ✅ 주문 등록 성공 (${numbers.length}건, ${elapsed}ms)`
     );
 
     const { order_count, vip_level, error: vipSyncError } =
@@ -228,54 +276,37 @@ export async function POST(request: Request) {
       );
     }
 
-    let orderData = data;
-    let aligoSendResult: Awaited<ReturnType<typeof executeOrderAligoSend>> | null =
-      null;
-
-    try {
-      aligoSendResult = await executeOrderAligoSend(supabase, data, {
-        incrementRetry: false,
-      });
-
-      orderData = aligoSendResult.order ?? {
-        ...data,
-        aligo_status: aligoSendResult.success ? "success" : "failed",
-        aligo_fail_reason: aligoSendResult.failReason ?? null,
-        aligo_fail_message: aligoSendResult.failMessage ?? null,
-      };
-
-      if (aligoSendResult.success) {
-        console.log(
-          `[POST /api/orders] Aligo 발송 성공: ${aligoSendResult.message}`
-        );
-      } else {
-        console.error(
-          `[POST /api/orders] Aligo 발송 실패: ${aligoSendResult.failReason}`,
-          aligoSendResult.failMessage
-        );
-      }
-    } catch (aligoError) {
-      const message =
-        aligoError instanceof Error ? aligoError.message : String(aligoError);
-      console.error("[POST /api/orders] ⚠️ Aligo 발송 처리 예외:", message);
-    }
-
     return NextResponse.json(
       {
-        success: true,
-        message: "주문 등록 성공",
+        success: allSuccess,
+        message:
+          numbers.length > 1
+            ? allSuccess
+              ? `주문 등록 및 알림톡 발송 완료 (${results.length}건)`
+              : `일부 발송에 실패했습니다. (${results.filter((r) => r.success).length}/${results.length})`
+            : "주문 등록 성공",
         data: orderData,
+        results:
+          numbers.length > 1
+            ? results.map((r) => ({
+                success: r.success,
+                orderId: r.order?.id ?? null,
+                tracking_number: r.order?.tracking_number ?? null,
+                failReason: r.failReason ?? null,
+                failMessage: r.failMessage ?? null,
+              }))
+            : undefined,
         customer: customer ?? undefined,
-        aligo: aligoSendResult
+        aligo: firstResult
           ? {
-              success: aligoSendResult.success,
-              message: aligoSendResult.success
-                ? aligoSendResult.message
-                : aligoSendResult.failReason
-                  ? `${ALIGO_FAIL_REASON_LABEL[aligoSendResult.failReason]}: ${aligoSendResult.message}`
-                  : aligoSendResult.message,
-              failReason: aligoSendResult.failReason,
-              failMessage: aligoSendResult.failMessage,
+              success: firstResult.success,
+              message: firstResult.success
+                ? firstResult.message
+                : firstResult.failReason
+                  ? `${ALIGO_FAIL_REASON_LABEL[firstResult.failReason]}: ${firstResult.message}`
+                  : firstResult.message,
+              failReason: firstResult.failReason,
+              failMessage: firstResult.failMessage,
             }
           : undefined,
         elapsedMs: elapsed,

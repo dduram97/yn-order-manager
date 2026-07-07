@@ -3,8 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AligoStatusBadge } from "@/components/orders/aligo-status-badge";
+import { AllCustomersPicker } from "@/components/orders/all-customers-picker";
 import { FavoriteCustomersPicker } from "@/components/orders/favorite-customers-picker";
 import { TemplateSelector } from "@/components/orders/template-selector";
+import { TrackingNumbersInput } from "@/components/orders/tracking-numbers-input";
 import { TemplateVariableFields } from "@/components/orders/template-variable-fields";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -23,6 +25,14 @@ import {
 } from "@/lib/aligo/template-schema";
 import type { AligoFailReason, AligoStatus } from "@/types/database";
 
+interface SendResultItem {
+  success: boolean;
+  orderId: string | null;
+  tracking_number: string | null;
+  failReason?: AligoFailReason | null;
+  failMessage?: string | null;
+}
+
 interface OrderApiResponse {
   success: boolean;
   data: {
@@ -32,6 +42,7 @@ interface OrderApiResponse {
     aligo_fail_message?: string | null;
   };
   message?: string;
+  results?: SendResultItem[];
   aligo?: {
     success?: boolean;
     message?: string;
@@ -48,23 +59,49 @@ export function OrderRegistrationForm() {
   const [error, setError] = useState<string | null>(null);
   const [aligoStatus, setAligoStatus] = useState<AligoStatus | null>(null);
   const [aligoMessage, setAligoMessage] = useState<string | null>(null);
+  const [sendResults, setSendResults] = useState<SendResultItem[] | null>(null);
 
   const [templateType, setTemplateType] = useState<AligoTemplateType>(
     DEFAULT_ALIGO_TEMPLATE_TYPE
   );
   const [fieldValues, setFieldValues] =
     useState<TemplateFieldValues>(createEmptyFieldValues);
+  const [trackingNumbers, setTrackingNumbers] = useState<string[]>([""]);
   const [memo, setMemo] = useState("");
 
   const handleFieldChange = (key: TemplateFieldKey, value: string) => {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleFavoriteCustomerSelect = (
-    updates: Partial<TemplateFieldValues>
-  ) => {
+  const handleCustomerSelect = (updates: Partial<TemplateFieldValues>) => {
     setFieldValues((prev) => ({ ...prev, ...updates }));
     showToast("고객 정보가 입력되었습니다.");
+  };
+
+  const handleTrackingChange = (index: number, value: string) => {
+    setTrackingNumbers((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+
+    if (index === 0) {
+      handleFieldChange("tracking_number", value);
+    }
+  };
+
+  const handleAddTracking = () => {
+    setTrackingNumbers((prev) => [...prev, ""]);
+  };
+
+  const handleRemoveTracking = (index: number) => {
+    setTrackingNumbers((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((_, i) => i !== index);
+      const first = next[0] ?? "";
+      setFieldValues((fv) => ({ ...fv, tracking_number: first }));
+      return next;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,6 +110,7 @@ export function OrderRegistrationForm() {
     setError(null);
     setAligoMessage(null);
     setAligoStatus(null);
+    setSendResults(null);
 
     try {
       const orderData = fieldValuesToOrderData(fieldValues);
@@ -80,6 +118,14 @@ export function OrderRegistrationForm() {
         templateType,
         orderData
       );
+
+      const cleanedTrackingNumbers = trackingNumbers
+        .map((v) => v.trim())
+        .filter((v) => v !== "");
+
+      if (cleanedTrackingNumbers.length === 0) {
+        throw new Error("송장번호를 하나 이상 입력해주세요.");
+      }
 
       const res = await fetch("/api/orders", {
         method: "POST",
@@ -89,7 +135,8 @@ export function OrderRegistrationForm() {
           phone: orderData.phone,
           sender_name: orderData.sender_name,
           receiver_name: orderData.receiver_name,
-          tracking_number: orderData.tracking_number,
+          tracking_number: cleanedTrackingNumbers[0],
+          tracking_numbers: cleanedTrackingNumbers,
           memo: memo.trim() || undefined,
           aligo_template_type: templateType,
         }),
@@ -97,15 +144,37 @@ export function OrderRegistrationForm() {
 
       const json: OrderApiResponse = await res.json();
 
-      if (!res.ok || !json.success) {
+      if (!res.ok) {
         const detail =
           json.errors?.map((item) => item.message).join(", ") || json.message;
         throw new Error(detail || "발송 등록에 실패했습니다.");
       }
 
-      setAligoStatus(json.data.aligo_status);
-      if (json.data.aligo_status === "success") {
+      const isMulti = (json.results?.length ?? 0) > 1;
+
+      if (json.results && json.results.length > 0) {
+        setSendResults(json.results);
+      }
+
+      const primaryStatus = json.data.aligo_status;
+      setAligoStatus(primaryStatus);
+
+      if (isMulti) {
+        const successCount = json.results!.filter((r) => r.success).length;
+        const total = json.results!.length;
+        if (json.success) {
+          showToast(`알림톡 발송 완료 (${successCount}/${total}건)`);
+          setAligoMessage(`총 ${total}건 발송이 완료되었습니다.`);
+        } else {
+          showToast(
+            `일부 발송 실패 (${successCount}/${total}건)`,
+            "error"
+          );
+          setAligoMessage(`성공 ${successCount}건 · 실패 ${total - successCount}건`);
+        }
+      } else if (primaryStatus === "success") {
         showToast("주문 등록 및 알림톡 발송이 완료되었습니다.");
+        setAligoMessage("알림톡 발송이 완료되었습니다.");
       } else {
         const reason = json.aligo?.failReason ?? json.data.aligo_fail_reason;
         const detail =
@@ -114,16 +183,12 @@ export function OrderRegistrationForm() {
           "주문은 등록되었으나 알림톡 발송에 실패했습니다.";
         const label = reason ? ALIGO_FAIL_REASON_LABEL[reason] : "발송 실패";
         showToast(`${label}: ${detail}`, "error");
+        setAligoMessage("주문은 등록되었으나 알림톡 발송에 실패했습니다.");
       }
-      setAligoMessage(
-        json.data.aligo_status === "success"
-          ? "알림톡 발송이 완료되었습니다."
-          : "주문은 등록되었으나 알림톡 발송에 실패했습니다."
-      );
 
       setTimeout(() => {
-        router.push(`/orders/${json.data.id}`);
-      }, 1200);
+        router.push(isMulti ? "/orders" : `/orders/${json.data.id}`);
+      }, 1500);
     } catch (err) {
       const message = err instanceof Error ? err.message : "오류가 발생했습니다.";
       showToast(message, "error");
@@ -154,18 +219,39 @@ export function OrderRegistrationForm() {
       </Card>
 
       <Card title="2. 발송 정보">
-        <div className="mb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-[0.5cm]">
           <FavoriteCustomersPicker
             templateType={templateType}
             disabled={submitting}
-            onSelect={handleFavoriteCustomerSelect}
+            onSelect={handleCustomerSelect}
+          />
+          <AllCustomersPicker
+            templateType={templateType}
+            disabled={submitting}
+            onSelect={handleCustomerSelect}
           />
         </div>
-        <TemplateVariableFields
-          templateType={templateType}
-          values={fieldValues}
-          onChange={handleFieldChange}
-        />
+
+        <div className="mb-4">
+          <TemplateVariableFields
+            templateType={templateType}
+            values={fieldValues}
+            onChange={handleFieldChange}
+            omitKeys={["tracking_number"]}
+            disabled={submitting}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-zinc-500">송장번호</p>
+          <TrackingNumbersInput
+            values={trackingNumbers}
+            onChange={handleTrackingChange}
+            onAdd={handleAddTracking}
+            onRemove={handleRemoveTracking}
+            disabled={submitting}
+          />
+        </div>
       </Card>
 
       <Card title="3. 메모 (선택)">
@@ -178,12 +264,14 @@ export function OrderRegistrationForm() {
         />
       </Card>
 
-      {aligoStatus && (
+      {(aligoStatus || sendResults) && (
         <Card title="발송 결과">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-zinc-500">알리고 상태</span>
-            <AligoStatusBadge status={aligoStatus} />
-          </div>
+          {aligoStatus && (
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-500">알리고 상태</span>
+              <AligoStatusBadge status={aligoStatus} />
+            </div>
+          )}
           {aligoMessage && (
             <p
               className={`mt-3 text-sm ${
@@ -194,6 +282,34 @@ export function OrderRegistrationForm() {
             >
               {aligoMessage}
             </p>
+          )}
+          {sendResults && sendResults.length > 1 && (
+            <ul className="mt-4 divide-y divide-zinc-100 rounded-lg border border-zinc-200">
+              {sendResults.map((result, index) => (
+                <li
+                  key={`${result.orderId ?? index}-${result.tracking_number ?? index}`}
+                  className="flex items-center justify-between gap-3 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-zinc-900">
+                      {result.tracking_number || "-"}
+                    </p>
+                    {!result.success && result.failMessage && (
+                      <p className="mt-0.5 truncate text-xs text-red-600">
+                        {result.failMessage}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className={`shrink-0 text-xs font-semibold ${
+                      result.success ? "text-emerald-600" : "text-red-600"
+                    }`}
+                  >
+                    {result.success ? "성공" : "실패"}
+                  </span>
+                </li>
+              ))}
+            </ul>
           )}
         </Card>
       )}
