@@ -14,6 +14,7 @@ export function UserMenu({ onLogout }: UserMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOpen(false);
   }, [pathname]);
 

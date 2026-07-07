@@ -20,9 +20,13 @@ function LoginForm() {
 
   useEffect(() => {
     const prefs = loadSavedEmailPrefs();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDefaultEmail(emailParam ?? prefs.email);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRememberEmail(prefs.rememberEmail);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRememberMe(prefs.rememberMe);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReady(true);
   }, [emailParam]);
 
@@ -54,7 +58,7 @@ function LoginForm() {
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 max-md:min-h-[100dvh] max-md:px-5 max-md:py-6">
       <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm max-md:rounded-xl max-md:p-6">
         <div className="mb-8 text-center max-md:mb-6">
-          <p className="text-sm font-medium text-zinc-500">가족용 알림 시스템</p>
+          <p className="text-sm font-medium text-zinc-500">유선주문 알림톡</p>
           <h1 className="mt-2 text-2xl font-bold text-zinc-900 max-md:text-xl">
             로그인
           </h1>

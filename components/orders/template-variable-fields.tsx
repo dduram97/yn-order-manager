@@ -15,6 +15,7 @@ interface TemplateVariableFieldsProps {
   values: TemplateFieldValues;
   onChange: (key: TemplateFieldKey, value: string) => void;
   disabled?: boolean;
+  omitKeys?: TemplateFieldKey[];
 }
 
 export function TemplateVariableFields({
@@ -22,8 +23,11 @@ export function TemplateVariableFields({
   values,
   onChange,
   disabled = false,
+  omitKeys,
 }: TemplateVariableFieldsProps) {
-  const fields = getAllFormFields(templateType);
+  const fields = getAllFormFields(templateType).filter((field) =>
+    omitKeys?.includes(field.key) ? false : true
+  );
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">

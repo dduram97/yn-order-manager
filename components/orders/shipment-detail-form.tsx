@@ -66,6 +66,7 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
 
   const [fieldValues, setFieldValues] =
     useState<TemplateFieldValues>(createEmptyFieldValues);
+  const [trackingNumbers, setTrackingNumbers] = useState<string[]>([""]);
   const [memo, setMemo] = useState("");
   const [aligoStatus, setAligoStatus] = useState<AligoStatus>("pending");
   const [aligoFailReason, setAligoFailReason] =
@@ -83,6 +84,7 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
 
   const applyOrder = (order: Order) => {
     setFieldValues(orderToFieldValues(order));
+    setTrackingNumbers([order.tracking_number || ""]);
     setMemo(order.memo ?? "");
     setAligoStatus(order.aligo_status);
     setAligoFailReason(order.aligo_fail_reason ?? null);
@@ -128,12 +130,17 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
       orderData
     );
 
+    const cleanedTrackingNumbers = trackingNumbers
+      .map((v) => v.trim())
+      .filter((v) => v !== "");
+
     return {
       customer_name,
       phone: orderData.phone,
       sender_name: orderData.sender_name,
       receiver_name: orderData.receiver_name,
       tracking_number: orderData.tracking_number,
+      tracking_numbers: cleanedTrackingNumbers,
       memo: memo.trim() === "" ? null : memo,
       aligo_template_type: aligoTemplateType,
     };
@@ -143,6 +150,32 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
     setSaveMessage(null);
     setSendMessage(null);
+  };
+
+  const handleTrackingChange = (index: number, value: string) => {
+    setTrackingNumbers((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+
+    if (index === 0) {
+      handleFieldChange("tracking_number", value);
+    }
+  };
+
+  const handleAddTracking = () => {
+    setTrackingNumbers((prev) => [...prev, ""]);
+  };
+
+  const handleRemoveTracking = (index: number) => {
+    setTrackingNumbers((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((_, i) => i !== index);
+      const first = next[0] ?? "";
+      setFieldValues((fv) => ({ ...fv, tracking_number: first }));
+      return next;
+    });
   };
 
   const handleSave = async () => {
@@ -322,10 +355,52 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
                 : "템플릿에 맞는 정보를 입력하세요."
             }
           >
+            <div className="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-zinc-500">송장번호</p>
+                  <p className="mt-1 text-sm font-semibold text-zinc-900">
+                    {trackingNumbers.filter((v) => v.trim() !== "").length || 0}개
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddTracking}
+                  disabled={isBusy || readOnly}
+                  className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50 max-md:min-h-12 max-md:rounded-xl max-md:text-base"
+                >
+                  + 송장 추가
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {trackingNumbers.map((value, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <input
+                      value={value}
+                      onChange={(e) => handleTrackingChange(index, e.target.value)}
+                      disabled={isBusy || readOnly}
+                      placeholder="송장번호"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10 disabled:bg-zinc-50 disabled:text-zinc-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTracking(index)}
+                      disabled={isBusy || readOnly || trackingNumbers.length <= 1}
+                      className="shrink-0 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      X 삭제
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <TemplateVariableFields
               templateType={aligoTemplateType}
               values={fieldValues}
               onChange={handleFieldChange}
+              omitKeys={["tracking_number"]}
               disabled={readOnly}
             />
           </Card>

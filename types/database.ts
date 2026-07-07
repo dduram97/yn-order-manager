@@ -26,6 +26,7 @@ export type VipLevel = "normal" | "silver" | "gold";
 
 export interface Order {
   id: string;
+  group_id?: string | null;
   customer_name: string;
   phone: string;
   tracking_number: string;
@@ -52,6 +53,7 @@ export interface Customer {
   created_at: string;
   order_count?: number;
   vip_level?: VipLevel;
+  grade?: VipLevel;
   is_favorite?: boolean;
   favorite_at?: string | null;
 }
@@ -74,6 +76,7 @@ export interface Database {
         Row: Order;
         Insert: {
           id?: string;
+          group_id?: string | null;
           customer_name: string;
           phone: string;
           tracking_number?: string;
@@ -93,6 +96,7 @@ export interface Database {
         };
         Update: {
           id?: string;
+          group_id?: string | null;
           customer_name?: string;
           phone?: string;
           tracking_number?: string;
@@ -122,6 +126,7 @@ export interface Database {
           created_at?: string;
           order_count?: number;
           vip_level?: VipLevel;
+          grade?: VipLevel;
           is_favorite?: boolean;
           favorite_at?: string | null;
         };
@@ -132,6 +137,7 @@ export interface Database {
           created_at?: string;
           order_count?: number;
           vip_level?: VipLevel;
+          grade?: VipLevel;
           is_favorite?: boolean;
           favorite_at?: string | null;
         };

@@ -37,12 +37,7 @@ export function ordersToCsv(orders: OrderListItem[]): string {
 }
 
 export function ordersToClipboardText(orders: OrderListItem[]): string {
-  return orders
-    .map((order) => {
-      const [name, phone, tracking, , status, createdAt] = toExportRow(order);
-      return `${name} | ${phone} | ${tracking} | ${status} | ${createdAt}`;
-    })
-    .join("\n");
+  return orders.map((order) => order.phone.replace(/[\s-]/g, "")).join("\n");
 }
 
 export function downloadOrdersCsv(orders: OrderListItem[], filename: string) {

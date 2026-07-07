@@ -13,6 +13,7 @@ export interface CreateOrderInput {
 }
 
 export interface UpdateOrderInput {
+  group_id?: string | null;
   customer_name?: string;
   phone?: string;
   tracking_number?: string;

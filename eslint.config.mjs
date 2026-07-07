@@ -10,6 +10,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    "ecosystem.config.js",
+    "server/**",
+    "lib/aligo/**/*.js",
   ]),
 ]);
 

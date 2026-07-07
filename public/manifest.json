@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "가족용 알림 시스템",
-  "short_name": "가족 알림",
+  "name": "유선주문 알림톡",
+  "short_name": "유선주문 알림톡",
   "description": "전화 주문 · 택배 · 선물 알림톡 발송 관리",
   "start_url": "/login",
   "scope": "/",

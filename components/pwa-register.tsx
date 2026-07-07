@@ -31,6 +31,7 @@ export function PwaRegister() {
 
     if (!isMobileDevice()) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStandalone(isStandaloneMode());
 
     // dev / HTTP LAN: SW 등록 금지 (캐시된 ok-page·라우팅 꼬임 방지)
@@ -56,6 +57,7 @@ export function PwaRegister() {
       !isStandaloneMode() &&
       !localStorage.getItem("yn_pwa_install_dismiss")
     ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowManualHint(true);
     }
 

@@ -2,11 +2,16 @@
 
 import { useEffect, useState } from "react";
 import { CustomerFavoriteStar } from "@/components/customers/customer-favorite-star";
+import {
+  CustomerCreateModal,
+  type CreatedCustomer,
+} from "@/components/customers/customer-create-modal";
 import { CustomerNameWithBadge } from "@/components/orders/customer-name-with-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
 import { formatDateTime, formatPhone } from "@/lib/utils/format";
+import { downloadCustomersXlsx } from "@/lib/utils/export-customers-xlsx";
 import type {
   CustomerListItemWithVip,
   CustomerListPagination,
@@ -17,6 +22,19 @@ interface CustomersApiResponse {
   success: boolean;
   data: CustomerListItemWithVip[];
   pagination: CustomerListPagination;
+}
+
+interface CustomersExportApiResponse {
+  success: boolean;
+  data: Array<
+    CustomerListItemWithVip & {
+      last_sent_date: string | null;
+      last_sent_at: string | null;
+      grade?: "normal" | "silver" | "gold";
+      vip_level?: "normal" | "silver" | "gold";
+    }
+  >;
+  message?: string;
 }
 
 const VIP_TABS: {
@@ -48,6 +66,8 @@ export function CustomerList() {
   const [vipFilter, setVipFilter] = useState<CustomerVipFilter>("all");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<CustomerListItemWithVip[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [pagination, setPagination] = useState<CustomerListPagination | null>(
     null
   );
@@ -172,11 +192,94 @@ export function CustomerList() {
 
   const activeTab = VIP_TABS.find((tab) => tab.value === vipFilter);
 
+  const handleExportXlsx = async () => {
+    setExporting(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({
+        vip: vipFilter,
+      });
+      if (query.trim()) params.set("search", query.trim());
+
+      const res = await fetch(`/api/customers/export?${params.toString()}`);
+      const json: CustomersExportApiResponse = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "엑셀 저장에 실패했습니다.");
+      }
+
+      downloadCustomersXlsx(
+        (json.data ?? []).map((row) => ({
+          name: row.name,
+          phone: row.phone,
+          order_count: row.order_count ?? 0,
+          last_sent_date: row.last_sent_date ?? null,
+          grade: row.grade,
+          vip_level: row.vip_level,
+          is_favorite: row.is_favorite ?? false,
+        }))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "엑셀 저장에 실패했습니다.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="고객 목록"
         description="발송 횟수 기준 VIP 등급이 자동으로 표시됩니다. (5건 이상 👍 · 10건 이상 🏆)"
+        action={
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <button
+              type="button"
+              disabled={exporting}
+              onClick={() => void handleExportXlsx()}
+              className="rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 max-md:min-h-12 max-md:rounded-xl max-md:text-base"
+            >
+              {exporting ? "저장 중..." : "엑셀 저장"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 max-md:min-h-12 max-md:rounded-xl max-md:text-base"
+            >
+              + 고객 추가
+            </button>
+          </div>
+        }
+      />
+
+      <CustomerCreateModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(created: CreatedCustomer) => {
+          const trimmedQuery = query.trim();
+          const matchesQuery =
+            trimmedQuery === "" ||
+            created.name.includes(trimmedQuery) ||
+            created.phone.includes(trimmedQuery.replace(/[\s-]/g, ""));
+
+          if (vipFilter === "all" && matchesQuery) {
+            setData((prev) => {
+              const next = [created as CustomerListItemWithVip, ...prev];
+              return next.slice(0, 20);
+            });
+            setPagination((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    totalCount: prev.totalCount + 1,
+                    totalPages: Math.ceil((prev.totalCount + 1) / prev.limit),
+                    page: 1,
+                  }
+                : prev
+            );
+            setPage(1);
+          }
+        }}
       />
 
       <div className="flex flex-wrap gap-2">
@@ -291,7 +394,7 @@ export function CustomerList() {
                           />
                           <CustomerNameWithBadge
                             name={customer.name}
-                            badge={customer.vip_badge}
+                            badge={customer.display_badge ?? customer.vip_badge}
                           />
                         </div>
                       </td>
@@ -302,7 +405,7 @@ export function CustomerList() {
                         {customer.order_count}건
                       </td>
                       <td className="px-4 py-3">
-                        <VipBadge badge={customer.vip_badge} />
+                        <VipBadge badge={customer.display_badge ?? customer.vip_badge} />
                       </td>
                       <td className="px-4 py-3 text-sm text-zinc-500">
                         {formatDateTime(customer.created_at)}
@@ -327,7 +430,7 @@ export function CustomerList() {
                         <p className="font-medium text-zinc-900">
                           <CustomerNameWithBadge
                             name={customer.name}
-                            badge={customer.vip_badge}
+                            badge={customer.display_badge ?? customer.vip_badge}
                           />
                         </p>
                         <p className="mt-1 text-sm text-zinc-500">
@@ -335,7 +438,7 @@ export function CustomerList() {
                         </p>
                       </div>
                     </div>
-                    <VipBadge badge={customer.vip_badge} />
+                    <VipBadge badge={customer.display_badge ?? customer.vip_badge} />
                   </div>
                   <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
                     <span>발송 {customer.order_count}건</span>

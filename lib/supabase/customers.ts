@@ -11,7 +11,7 @@ import { escapeIlike, normalizePhone } from "@/lib/validations/order";
 type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
 const CUSTOMER_LIST_COLUMNS_BASE =
-  "id, name, phone, created_at, is_favorite, favorite_at";
+  "id, name, phone, created_at, grade, is_favorite, favorite_at";
 const CUSTOMER_LIST_COLUMNS_WITH_VIP = `${CUSTOMER_LIST_COLUMNS_BASE}, order_count, vip_level`;
 
 export interface UpsertCustomerPayload {
@@ -25,6 +25,12 @@ function enrichCustomersFromCache(
   return customers.map((customer) => ({
     ...customer,
     ...resolveVipFields(customer.order_count ?? 0),
+    display_badge:
+      customer.grade && customer.grade !== "normal"
+        ? customer.grade === "silver"
+          ? "Silver VIP"
+          : "Gold VIP"
+        : resolveVipFields(customer.order_count ?? 0).vip_badge,
   }));
 }
 
@@ -88,7 +94,9 @@ export async function listCustomers(
   if (error?.code === "42703") {
     let legacyQuery = supabase
       .from("customers")
-      .select(CUSTOMER_LIST_COLUMNS_BASE, { count: "exact" })
+      .select("id, name, phone, created_at, is_favorite, favorite_at", {
+        count: "exact",
+      })
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -123,7 +131,10 @@ export async function listCustomers(
     }
 
     return {
-      data: enriched,
+      data: enriched.map((c) => ({
+        ...c,
+        display_badge: c.vip_badge,
+      })),
       pagination: {
         page,
         limit,

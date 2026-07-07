@@ -6,6 +6,7 @@ import type { AligoResponseLog } from "@/types/aligo-audit";
 import { escapeIlike, normalizePhone } from "@/lib/validations/order";
 
 export interface InsertOrderPayload {
+  group_id?: string | null;
   customer_name: string;
   phone: string;
   tracking_number: string;
@@ -30,11 +31,24 @@ export async function insertOrder(
   payload: InsertOrderPayload
 ) {
   // 수동 정의 Database 타입과 postgrest-js v2.110 간 insert 타입 추론 이슈 우회
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("orders")
     .insert(payload as never)
     .select()
     .single();
+
+  if (error?.code === "42703") {
+    // group_id 등 신규 컬럼 적용 전 환경 fallback
+    const { group_id, ...legacy } = payload;
+    void group_id;
+    const legacyResult = await supabase
+      .from("orders")
+      .insert(legacy as never)
+      .select()
+      .single();
+    data = legacyResult.data;
+    error = legacyResult.error as unknown as typeof error;
+  }
 
   return {
     data: data as Order | null,

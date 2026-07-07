@@ -7,11 +7,15 @@ export interface CustomerListItem {
   name: string;
   phone: string;
   created_at: string;
+  grade?: VipLevel;
   is_favorite?: boolean;
   favorite_at?: string | null;
 }
 
-export type CustomerListItemWithVip = CustomerListItem & VipFields;
+export type CustomerListItemWithVip = CustomerListItem &
+  VipFields & {
+    display_badge?: string;
+  };
 
 export type CustomerVipFilter = "all" | "silver" | "gold" | "favorite";
 

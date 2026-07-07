@@ -15,14 +15,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "가족용 알림 시스템",
+  title: "유선주문 알림톡",
   description: "전화 주문 · 택배 · 선물 알림톡 발송 관리",
-  applicationName: "가족용 알림 시스템",
+  applicationName: "유선주문 알림톡",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "가족용 알림",
+    title: "유선주문 알림톡",
+  },
+  openGraph: {
+    title: "유선주문 알림톡",
+    siteName: "유선주문 알림톡",
   },
   icons: {
     icon: [
