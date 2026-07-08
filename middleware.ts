@@ -15,6 +15,8 @@ const PUBLIC_API_PATHS = [
   "/api/test",
   "/api/health",
   "/api/aligo/env-check",
+  /** 고객용 배송조회 — yn-customer BFF에서 호출 (로그인 불필요) */
+  "/api/tracking",
 ];
 
 function isStaticAsset(pathname: string): boolean {
@@ -33,7 +35,11 @@ function isPublicPath(pathname: string): boolean {
 }
 
 function isPublicApiPath(pathname: string): boolean {
-  return PUBLIC_API_PATHS.some((path) => pathname === path);
+  const normalized =
+    pathname.length > 1 && pathname.endsWith("/")
+      ? pathname.slice(0, -1)
+      : pathname;
+  return PUBLIC_API_PATHS.some((path) => normalized === path);
 }
 
 function isAdminOnlyPage(pathname: string): boolean {

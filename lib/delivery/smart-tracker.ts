@@ -32,6 +32,25 @@ export function normalizeTrackingNumber(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+/** 스마트택배 이벤트 kind → 내부 배송상태 (고객용 단순화 매핑의 기반) */
+export function mapSmartTrackerKindToDeliveryStatus(kind: string): DeliveryStatus {
+  const k = kind.trim();
+  if (/배송완료|배달완료/.test(k)) return "delivered";
+  if (/간선상차|간선하차|배송출발/.test(k)) return "in_transit";
+  if (/상품인수|집화처리/.test(k)) return "ready";
+  if (k && k !== "-") return "in_transit";
+  return "ready";
+}
+
+function resolveLastTrackingKind(data: SmartTrackerResponse): string {
+  return (
+    data.lastStateDetail?.kind ??
+    data.lastDetail?.kind ??
+    data.trackingDetails?.[data.trackingDetails.length - 1]?.kind ??
+    ""
+  ).trim();
+}
+
 export function mapSmartTrackerToDeliveryStatus(
   data: SmartTrackerResponse
 ): DeliveryStatus {
@@ -39,13 +58,9 @@ export function mapSmartTrackerToDeliveryStatus(
     return "delivered";
   }
 
-  const details = data.trackingDetails ?? [];
-  if (details.length > 0) {
-    const lastKind = details[details.length - 1]?.kind ?? "";
-    if (/배송완료|배달완료/.test(lastKind)) {
-      return "delivered";
-    }
-    return "in_transit";
+  const lastKind = resolveLastTrackingKind(data);
+  if (lastKind) {
+    return mapSmartTrackerKindToDeliveryStatus(lastKind);
   }
 
   return "ready";
