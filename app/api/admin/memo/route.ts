@@ -7,16 +7,20 @@ type MemoApiResponse =
   | { success: true; data: Pick<AdminPrivateMemo, "content" | "updated_at"> }
   | { success: false; message: string };
 
+type MemoContentRow = Pick<AdminPrivateMemo, "content" | "updated_at">;
+
 export async function GET() {
   const auth = await requireAuth({ adminOnly: true });
   if (auth.error) return auth.error;
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data: rawData, error } = await supabase
     .from("admin_private_memos")
     .select("content, updated_at")
     .eq("user_id", auth.user.id)
     .maybeSingle();
+
+  const data = rawData as MemoContentRow | null;
 
   if (error) {
     return NextResponse.json(
@@ -61,7 +65,7 @@ export async function PUT(request: Request) {
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data: rawData, error } = await supabase
     .from("admin_private_memos")
     .upsert(
       {
@@ -72,6 +76,8 @@ export async function PUT(request: Request) {
     )
     .select("content, updated_at")
     .single();
+
+  const data = rawData as MemoContentRow | null;
 
   if (error || !data) {
     return NextResponse.json(

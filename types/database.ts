@@ -8,6 +8,7 @@
 export type { AligoResponseLog } from "./aligo-audit";
 import type { AligoResponseLog } from "./aligo-audit";
 import type { DeliveryTrackingLog } from "./delivery";
+import type { AdminPrivateMemo } from "./admin-memo";
 
 export type AligoStatus = "pending" | "success" | "failed";
 
@@ -194,6 +195,24 @@ export interface Database {
           password_hash?: string;
           role?: "admin" | "staff";
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      admin_private_memos: {
+        Row: AdminPrivateMemo;
+        Insert: {
+          id?: string;
+          user_id: string;
+          content?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          content?: string;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };
