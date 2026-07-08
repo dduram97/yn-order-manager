@@ -50,6 +50,13 @@ export function formatDisplayDate(isoDate: string): string {
   return `${y}.${m}.${d}`;
 }
 
+/** YYYY-MM-DD → YY-MM-DD (모바일 조회 기간 표시) */
+export function formatCompactDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-");
+  if (!y || !m || !d) return isoDate;
+  return `${y.slice(-2)}-${m}-${d}`;
+}
+
 export function formatDateRangeLabel(startDate: string, endDate: string): string {
   return `${formatDisplayDate(startDate)} ~ ${formatDisplayDate(endDate)}`;
 }

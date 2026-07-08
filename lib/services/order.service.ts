@@ -11,6 +11,7 @@ import type { OrderListQueryParams } from "@/types/order";
 import type { AligoFailReason } from "@/lib/aligo/fail-reason";
 import { classifyAligoFailure } from "@/lib/aligo/fail-reason";
 import { sendAligoNotificationForOrder } from "@/lib/services/aligo.service";
+import { validateTrackingNumber } from "@/lib/validations/tracking-number";
 
 type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -41,6 +42,17 @@ export async function executeOrderAligoSend(
   order: Order,
   options: { incrementRetry?: boolean } = {}
 ): Promise<OrderAligoSendResult> {
+  const trackingError = validateTrackingNumber(order.tracking_number);
+  if (trackingError) {
+    return {
+      success: false,
+      message: trackingError,
+      order,
+      failReason: "UNKNOWN_ERROR",
+      failMessage: trackingError,
+    };
+  }
+
   const templateType =
     order.aligo_template_type || DEFAULT_ALIGO_TEMPLATE_TYPE;
 

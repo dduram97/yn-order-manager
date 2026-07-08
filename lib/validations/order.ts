@@ -6,6 +6,7 @@ import {
 import type { CreateOrderInput, OrderListDateRangeParams, OrderListParams, OrderListQueryParams, UpdateOrderInput } from "@/types/order";
 import { getDefaultDateRange } from "@/lib/utils/format";
 import { resolveKstDateRange, getKstDateString } from "@/lib/utils/kst-date-range";
+import { validateTrackingNumber } from "@/lib/validations/tracking-number";
 
 export interface ValidationError {
   field: string;
@@ -146,6 +147,25 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
 
   const firstTracking =
     resolvedTrackingNumbers?.[0] ?? singleTracking;
+
+  if (!resolvedTrackingNumbers || resolvedTrackingNumbers.length === 0) {
+    errors.push({
+      field: "tracking_number",
+      message: "운송장번호가 입력되지 않았습니다.",
+    });
+  } else {
+    for (const tn of resolvedTrackingNumbers) {
+      const trackingError = validateTrackingNumber(tn);
+      if (trackingError) {
+        errors.push({ field: "tracking_number", message: trackingError });
+        break;
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
+  }
 
   return {
     success: true,
@@ -293,7 +313,12 @@ export function validateUpdateOrderInput(
             message: "송장번호는 비어있을 수 없습니다.",
           });
         } else {
-          update.tracking_number = value.trim();
+          const trackingError = validateTrackingNumber(value);
+          if (trackingError) {
+            errors.push({ field, message: trackingError });
+          } else {
+            update.tracking_number = value.trim();
+          }
         }
         break;
 

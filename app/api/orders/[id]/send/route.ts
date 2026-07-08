@@ -12,6 +12,7 @@ import {
   validateOrderId,
   validateUpdateOrderInput,
 } from "@/lib/validations/order";
+import { validateTrackingNumber } from "@/lib/validations/tracking-number";
 
 /**
  * POST /api/orders/[id]/send
@@ -127,6 +128,16 @@ export async function POST(
 
     // 여러 송장 발송: tracking_numbers가 있으면 송장별로 orders row를 생성하여 독립 발송/이력 저장
     if (trackingNumbers && trackingNumbers.length > 0) {
+      for (const tn of trackingNumbers) {
+        const trackingError = validateTrackingNumber(tn);
+        if (trackingError) {
+          return NextResponse.json(
+            { success: false, message: trackingError },
+            { status: 400 }
+          );
+        }
+      }
+
       const groupId = existing.group_id ?? crypto.randomUUID();
       const [first, ...rest] = Array.from(new Set(trackingNumbers));
 
@@ -234,6 +245,14 @@ export async function POST(
       }
 
       orderData = updated;
+    }
+
+    const trackingError = validateTrackingNumber(orderData.tracking_number);
+    if (trackingError) {
+      return NextResponse.json(
+        { success: false, message: trackingError },
+        { status: 400 }
+      );
     }
 
     const result = await executeOrderAligoSend(supabase, orderData, {

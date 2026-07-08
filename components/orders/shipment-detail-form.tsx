@@ -27,6 +27,7 @@ import {
   type TemplateFieldValues,
 } from "@/lib/aligo/template-schema";
 import { formatDateTime, formatPhone } from "@/lib/utils/format";
+import { validateTrackingNumber } from "@/lib/validations/tracking-number";
 import type { AligoFailReason, AligoStatus, Order } from "@/types/database";
 import type { AligoResponseLog } from "@/types/aligo-audit";
 
@@ -173,6 +174,15 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
   };
 
   const handleSend = async () => {
+    const trackingError = validateTrackingNumber(
+      fieldValuesToOrderData(fieldValues).tracking_number
+    );
+    if (trackingError) {
+      showToast(trackingError, "error");
+      setError(trackingError);
+      return;
+    }
+
     setSending(true);
     setSendMessage(null);
     setError(null);
@@ -218,6 +228,15 @@ export function ShipmentDetailForm({ orderId }: ShipmentDetailFormProps) {
   };
 
   const handleResend = async () => {
+    const trackingError = validateTrackingNumber(
+      fieldValuesToOrderData(fieldValues).tracking_number
+    );
+    if (trackingError) {
+      showToast(trackingError, "error");
+      setError(trackingError);
+      return;
+    }
+
     setResending(true);
     setError(null);
     setAligoStatus("pending");

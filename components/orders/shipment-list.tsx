@@ -17,6 +17,7 @@ import {
 } from "@/lib/utils/export-orders";
 import {
   formatDateRangeLabel,
+  formatCompactDate,
   formatPhone,
   formatShortSentDate,
   getDefaultDateRange,
@@ -64,6 +65,10 @@ const TABLE_HEAD_CELL =
 const TABLE_BODY_CELL =
   "px-3 py-3 text-center align-middle text-sm text-zinc-700";
 const TABLE_CELL_INNER = "flex items-center justify-center";
+const CLICKABLE_DETAIL =
+  "cursor-pointer text-zinc-900 transition hover:text-zinc-600 hover:underline";
+const CLICKABLE_TRACKING =
+  "cursor-pointer tabular-nums text-zinc-700 transition hover:text-zinc-900 hover:underline";
 
 function applyDeliveryUpdates(
   orders: OrderListItem[],
@@ -244,8 +249,16 @@ export function ShipmentList() {
     router.push(`/orders/${id}`);
   };
 
+  const handleDetailClick = (
+    e: React.MouseEvent,
+    id: string
+  ) => {
+    e.stopPropagation();
+    goToDetail(id);
+  };
+
   const handleDeliveryStatusClick = (
-    e: React.MouseEvent<HTMLButtonElement>,
+    e: React.MouseEvent,
     order: OrderListItem
   ) => {
     e.stopPropagation();
@@ -347,7 +360,32 @@ export function ShipmentList() {
         className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
-          <label className="block space-y-1.5">
+          <div className="max-md:col-span-full md:hidden">
+            <p className="mb-1.5 text-xs font-medium text-zinc-500">조회 기간</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={startDate}
+                max={endDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                aria-label="시작일"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2 py-2.5 text-sm tabular-nums outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
+              />
+              <span className="shrink-0 text-sm text-zinc-400">~</span>
+              <input
+                type="date"
+                value={endDate}
+                min={startDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                aria-label="종료일"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2 py-2.5 text-sm tabular-nums outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
+              />
+            </div>
+            <p className="mt-1.5 text-center text-xs tabular-nums text-zinc-500">
+              {formatCompactDate(startDate)} ~ {formatCompactDate(endDate)}
+            </p>
+          </div>
+          <label className="hidden space-y-1.5 md:block">
             <span className="text-xs font-medium text-zinc-500">시작일</span>
             <input
               type="date"
@@ -357,7 +395,7 @@ export function ShipmentList() {
               className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
             />
           </label>
-          <label className="block space-y-1.5">
+          <label className="hidden space-y-1.5 md:block">
             <span className="text-xs font-medium text-zinc-500">종료일</span>
             <input
               type="date"
@@ -460,29 +498,44 @@ export function ShipmentList() {
                   {orders.map((order) => (
                     <tr
                       key={order.id}
-                      onClick={() => goToDetail(order.id)}
-                      className="cursor-pointer transition hover:bg-zinc-50"
+                      className="transition hover:bg-zinc-50"
                     >
-                      <td className={`${TABLE_BODY_CELL} font-medium text-zinc-900`}>
+                      <td className={`${TABLE_BODY_CELL} font-medium`}>
                         <div className={TABLE_CELL_INNER}>
-                          <CustomerNameWithBadge
-                            name={order.customer_name}
-                            badge={order.vip_badge}
-                          />
+                          <button
+                            type="button"
+                            onClick={(e) => handleDetailClick(e, order.id)}
+                            className={CLICKABLE_DETAIL}
+                          >
+                            <CustomerNameWithBadge
+                              name={order.customer_name}
+                              badge={order.vip_badge}
+                            />
+                          </button>
                         </div>
                       </td>
                       <td className={TABLE_BODY_CELL}>
-                        <div
-                          className={`${TABLE_CELL_INNER} tabular-nums whitespace-nowrap`}
-                        >
-                          {formatPhone(order.phone)}
+                        <div className={TABLE_CELL_INNER}>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDetailClick(e, order.id)}
+                            className={`${CLICKABLE_DETAIL} tabular-nums whitespace-nowrap`}
+                          >
+                            {formatPhone(order.phone)}
+                          </button>
                         </div>
                       </td>
                       <td className={TABLE_BODY_CELL}>
-                        <div
-                          className={`${TABLE_CELL_INNER} tabular-nums whitespace-nowrap`}
-                        >
-                          {order.tracking_number || "-"}
+                        <div className={TABLE_CELL_INNER}>
+                          <button
+                            type="button"
+                            onClick={(e) =>
+                              handleDeliveryStatusClick(e, order)
+                            }
+                            className={`${CLICKABLE_TRACKING} whitespace-nowrap`}
+                          >
+                            {order.tracking_number || "-"}
+                          </button>
                         </div>
                       </td>
                       <td className={TABLE_BODY_CELL}>
@@ -537,25 +590,35 @@ export function ShipmentList() {
 
             <div className="divide-y divide-zinc-100 md:hidden">
               {orders.map((order) => (
-                <button
+                <div
                   key={order.id}
-                  type="button"
-                  onClick={() => goToDetail(order.id)}
-                  className="w-full px-4 py-4 text-center transition hover:bg-zinc-50"
+                  className="w-full px-4 py-4 text-center"
                 >
                   <div className="flex flex-col items-center gap-2">
-                    <p className="font-medium text-zinc-900">
+                    <button
+                      type="button"
+                      onClick={(e) => handleDetailClick(e, order.id)}
+                      className={`font-medium ${CLICKABLE_DETAIL}`}
+                    >
                       <CustomerNameWithBadge
                         name={order.customer_name}
                         badge={order.vip_badge}
                       />
-                    </p>
-                    <p className="text-sm tabular-nums text-zinc-600">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDetailClick(e, order.id)}
+                      className={`text-sm tabular-nums ${CLICKABLE_DETAIL}`}
+                    >
                       {formatPhone(order.phone)}
-                    </p>
-                    <p className="text-sm tabular-nums text-zinc-600">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeliveryStatusClick(e, order)}
+                      className={`text-sm tabular-nums ${CLICKABLE_TRACKING}`}
+                    >
                       송장 {order.tracking_number || "-"}
-                    </p>
+                    </button>
                     {(() => {
                       const deliveryStatus = resolveListDeliveryStatus(
                         order.aligo_status,
@@ -585,7 +648,7 @@ export function ShipmentList() {
                       {formatShortSentDate(order.sent_at ?? order.created_at)}
                     </p>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           </>

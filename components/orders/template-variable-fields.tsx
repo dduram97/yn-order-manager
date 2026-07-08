@@ -6,6 +6,7 @@ import {
   type TemplateFieldKey,
   type TemplateFieldValues,
 } from "@/lib/aligo/template-schema";
+import { TrackingNumberField } from "@/components/orders/tracking-numbers-input";
 
 const inputClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10";
@@ -41,13 +42,22 @@ export function TemplateVariableFields({
           <span className="text-xs font-medium text-zinc-500">
             {field.label}
           </span>
-          <input
-            value={values[field.key]}
-            onChange={(e) => onChange(field.key, e.target.value)}
-            disabled={disabled}
-            placeholder={field.key === "phone" ? "010-1234-5678" : undefined}
-            className={inputClass}
-          />
+          {field.key === "tracking_number" ? (
+            <TrackingNumberField
+              value={values[field.key]}
+              onChange={(next) => onChange(field.key, next)}
+              disabled={disabled}
+              aria-label="운송장번호"
+            />
+          ) : (
+            <input
+              value={values[field.key]}
+              onChange={(e) => onChange(field.key, e.target.value)}
+              disabled={disabled}
+              placeholder={field.key === "phone" ? "010-1234-5678" : undefined}
+              className={inputClass}
+            />
+          )}
         </label>
       ))}
     </div>

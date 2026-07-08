@@ -8,7 +8,6 @@ import { FavoriteCustomersPicker } from "@/components/orders/favorite-customers-
 import { TemplateSelector } from "@/components/orders/template-selector";
 import { TrackingNumbersInput } from "@/components/orders/tracking-numbers-input";
 import { TemplateVariableFields } from "@/components/orders/template-variable-fields";
-import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Toast, useToast } from "@/components/ui/toast";
 import {
@@ -24,6 +23,11 @@ import {
   type TemplateFieldValues,
 } from "@/lib/aligo/template-schema";
 import type { AligoFailReason, AligoStatus } from "@/types/database";
+import {
+  sanitizeTrackingNumberInput,
+  validateTrackingNumber,
+} from "@/lib/validations/tracking-number";
+import { Card } from "@/components/ui/card";
 
 interface SendResultItem {
   success: boolean;
@@ -79,14 +83,16 @@ export function OrderRegistrationForm() {
   };
 
   const handleTrackingChange = (index: number, value: string) => {
+    const sanitized = sanitizeTrackingNumberInput(value);
+
     setTrackingNumbers((prev) => {
       const next = [...prev];
-      next[index] = value;
+      next[index] = sanitized;
       return next;
     });
 
     if (index === 0) {
-      handleFieldChange("tracking_number", value);
+      handleFieldChange("tracking_number", sanitized);
     }
   };
 
@@ -124,7 +130,14 @@ export function OrderRegistrationForm() {
         .filter((v) => v !== "");
 
       if (cleanedTrackingNumbers.length === 0) {
-        throw new Error("송장번호를 하나 이상 입력해주세요.");
+        throw new Error("운송장번호가 입력되지 않았습니다.");
+      }
+
+      for (const tn of cleanedTrackingNumbers) {
+        const trackingError = validateTrackingNumber(tn);
+        if (trackingError) {
+          throw new Error(trackingError);
+        }
       }
 
       const res = await fetch("/api/orders", {
@@ -243,7 +256,7 @@ export function OrderRegistrationForm() {
         </div>
 
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-zinc-500">송장번호</p>
+          <p className="text-xs font-medium text-zinc-500">운송장번호</p>
           <TrackingNumbersInput
             values={trackingNumbers}
             onChange={handleTrackingChange}
