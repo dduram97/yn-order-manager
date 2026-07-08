@@ -10,7 +10,14 @@ import { CustomerNameWithBadge } from "@/components/orders/customer-name-with-ba
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
-import { formatDateTime, formatPhone } from "@/lib/utils/format";
+import { Toast, useToast } from "@/components/ui/toast";
+import { AdminMemoModal } from "@/components/admin/admin-memo-modal";
+import {
+  formatCompactDate,
+  formatDateTime,
+  formatPhone,
+  getDefaultDateRange,
+} from "@/lib/utils/format";
 import { downloadCustomersXlsx } from "@/lib/utils/export-customers-xlsx";
 import type {
   CustomerListItemWithVip,
@@ -61,13 +68,19 @@ function VipBadge({ badge }: { badge?: string }) {
 }
 
 export function CustomerList() {
+  const { toast, showToast, dismissToast } = useToast();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const defaultRange = getDefaultDateRange();
+  const [startDate, setStartDate] = useState(defaultRange.startDate);
+  const [endDate, setEndDate] = useState(defaultRange.endDate);
   const [vipFilter, setVipFilter] = useState<CustomerVipFilter>("all");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<CustomerListItemWithVip[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [memoOpen, setMemoOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [copying, setCopying] = useState(false);
   const [pagination, setPagination] = useState<CustomerListPagination | null>(
     null
   );
@@ -86,6 +99,8 @@ export function CustomerList() {
         page: String(page),
         limit: "20",
         vip: vipFilter,
+        startDate,
+        endDate,
       });
       if (query) params.set("search", query);
 
@@ -117,12 +132,25 @@ export function CustomerList() {
     return () => {
       cancelled = true;
     };
-  }, [page, query, vipFilter]);
+  }, [page, query, vipFilter, startDate, endDate]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [startDate, endDate]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setPage(1);
     setQuery(search.trim());
+  };
+
+  const handleReset = () => {
+    const range = getDefaultDateRange();
+    setStartDate(range.startDate);
+    setEndDate(range.endDate);
+    setSearch("");
+    setQuery("");
+    setPage(1);
   };
 
   const handleVipFilterChange = (next: CustomerVipFilter) => {
@@ -199,6 +227,8 @@ export function CustomerList() {
     try {
       const params = new URLSearchParams({
         vip: vipFilter,
+        startDate,
+        endDate,
       });
       if (query.trim()) params.set("search", query.trim());
 
@@ -226,25 +256,74 @@ export function CustomerList() {
     }
   };
 
+  const handleCopyPhones = async () => {
+    setCopying(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({
+        vip: vipFilter,
+        startDate,
+        endDate,
+      });
+      if (query.trim()) params.set("search", query.trim());
+
+      const res = await fetch(`/api/customers/export?${params.toString()}`);
+      const json: CustomersExportApiResponse = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "전화번호 복사에 실패했습니다.");
+      }
+
+      const phones = (json.data ?? [])
+        .map((row) => String(row.phone ?? "").trim())
+        .filter(Boolean);
+
+      if (phones.length === 0) {
+        showToast("복사할 전화번호가 없습니다.", "error");
+        return;
+      }
+
+      const text = phones.join("\n");
+      await navigator.clipboard.writeText(text);
+      showToast(`${phones.length.toLocaleString()}개의 전화번호를 복사했습니다.`);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "전화번호 복사에 실패했습니다.";
+      showToast(message, "error");
+      setError(message);
+    } finally {
+      setCopying(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      <Toast toast={toast} onDismiss={dismissToast} />
       <PageHeader
         title="고객 목록"
         description="발송 횟수 기준 VIP 등급이 자동으로 표시됩니다. (5건 이상 👍 · 10건 이상 🏆)"
         action={
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+          <div className="flex gap-2 overflow-x-auto pb-1 sm:items-center sm:justify-end sm:overflow-visible sm:pb-0">
+            <button
+              type="button"
+              disabled={copying}
+              onClick={() => void handleCopyPhones()}
+              className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 sm:border-zinc-200 sm:px-4 sm:py-2.5 sm:disabled:opacity-50"
+            >
+              {copying ? "복사 중..." : "클립보드 복사"}
+            </button>
             <button
               type="button"
               disabled={exporting}
               onClick={() => void handleExportXlsx()}
-              className="rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 max-md:min-h-12 max-md:rounded-xl max-md:text-base"
+              className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40 sm:border-zinc-200 sm:px-4 sm:py-2.5 sm:disabled:opacity-50"
             >
               {exporting ? "저장 중..." : "엑셀 저장"}
             </button>
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 max-md:min-h-12 max-md:rounded-xl max-md:text-base"
+              className="shrink-0 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 sm:px-4 sm:py-2.5"
             >
               + 고객 추가
             </button>
@@ -281,6 +360,7 @@ export function CustomerList() {
           }
         }}
       />
+      <AdminMemoModal open={memoOpen} onClose={() => setMemoOpen(false)} />
 
       <div className="flex flex-wrap gap-2">
         {VIP_TABS.map((tab) => {
@@ -310,14 +390,66 @@ export function CustomerList() {
             </button>
           );
         })}
+        <button
+          type="button"
+          onClick={() => setMemoOpen(true)}
+          className="rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:border-zinc-300 hover:bg-zinc-50"
+        >
+          메모
+        </button>
       </div>
 
       <form
         onSubmit={handleSearch}
         className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm"
       >
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <label className="block flex-1 space-y-1.5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+          <div className="max-md:col-span-full md:hidden">
+            <p className="mb-1.5 text-xs font-medium text-zinc-500">조회 기간</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={startDate}
+                max={endDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                aria-label="시작일"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2 py-2.5 text-sm tabular-nums outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
+              />
+              <span className="shrink-0 text-sm text-zinc-400">~</span>
+              <input
+                type="date"
+                value={endDate}
+                min={startDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                aria-label="종료일"
+                className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2 py-2.5 text-sm tabular-nums outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
+              />
+            </div>
+            <p className="mt-1.5 text-center text-xs tabular-nums text-zinc-500">
+              {formatCompactDate(startDate)} ~ {formatCompactDate(endDate)}
+            </p>
+          </div>
+          <label className="hidden space-y-1.5 md:block">
+            <span className="text-xs font-medium text-zinc-500">시작일</span>
+            <input
+              type="date"
+              value={startDate}
+              max={endDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
+            />
+          </label>
+          <label className="hidden space-y-1.5 md:block">
+            <span className="text-xs font-medium text-zinc-500">종료일</span>
+            <input
+              type="date"
+              value={endDate}
+              min={startDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
+            />
+          </label>
+          <label className="block space-y-1.5 lg:col-span-3">
             <span className="text-xs font-medium text-zinc-500">
               이름 또는 전화번호
             </span>
@@ -329,12 +461,21 @@ export function CustomerList() {
               className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
             />
           </label>
-          <button
-            type="submit"
-            className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 max-md:min-h-12 max-md:w-full max-md:rounded-xl max-md:text-base"
-          >
-            검색
-          </button>
+          <div className="flex items-end gap-2 sm:col-span-2 max-md:flex-col">
+            <button
+              type="submit"
+              className="flex-1 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 sm:flex-none max-md:min-h-12 max-md:w-full max-md:rounded-xl max-md:text-base"
+            >
+              검색
+            </button>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 max-md:min-h-12 max-md:w-full max-md:rounded-xl max-md:text-base"
+            >
+              초기화
+            </button>
+          </div>
         </div>
       </form>
 
@@ -370,7 +511,7 @@ export function CustomerList() {
               <table className="min-w-full divide-y divide-zinc-200">
                 <thead className="bg-zinc-50">
                   <tr>
-                    {["고객명", "전화번호", "발송 횟수", "VIP", "등록일"].map(
+                    {["고객명", "전화번호", "발송 횟수", "최종 주문일", "등록일"].map(
                       (col) => (
                         <th
                           key={col}
@@ -404,8 +545,10 @@ export function CustomerList() {
                       <td className="px-4 py-3 text-sm text-zinc-600">
                         {customer.order_count}건
                       </td>
-                      <td className="px-4 py-3">
-                        <VipBadge badge={customer.display_badge ?? customer.vip_badge} />
+                      <td className="px-4 py-3 text-sm text-zinc-500">
+                        {customer.last_sent_at
+                          ? formatDateTime(customer.last_sent_at)
+                          : "-"}
                       </td>
                       <td className="px-4 py-3 text-sm text-zinc-500">
                         {formatDateTime(customer.created_at)}
@@ -442,6 +585,11 @@ export function CustomerList() {
                   </div>
                   <div className="mt-3 flex items-center justify-between text-xs text-zinc-500">
                     <span>발송 {customer.order_count}건</span>
+                    <span>
+                      최종 {customer.last_sent_at ? formatDateTime(customer.last_sent_at) : "-"}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-end text-xs text-zinc-500">
                     <span>{formatDateTime(customer.created_at)}</span>
                   </div>
                 </div>
@@ -451,7 +599,7 @@ export function CustomerList() {
         )}
       </div>
 
-      {pagination && (
+      {!loading && !error && pagination && pagination.totalCount > 0 && (
         <Pagination
           page={pagination.page}
           totalPages={pagination.totalPages}

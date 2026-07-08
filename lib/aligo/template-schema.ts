@@ -1,5 +1,6 @@
 import type { AligoTemplateType } from "@/lib/constants/aligo";
 import { getSnapshotTemplateName } from "./dashboard-snapshot";
+import { sanitizeTrackingNumberInput } from "@/lib/validations/tracking-number";
 
 /** orders / API 필드 키 */
 export const TEMPLATE_FIELD_KEYS = [
@@ -206,7 +207,7 @@ export function orderToFieldValues(
     customer_name: order.customer_name ?? "",
     sender_name: order.sender_name ?? "",
     receiver_name: order.receiver_name ?? "",
-    tracking_number: order.tracking_number ?? "",
+    tracking_number: sanitizeTrackingNumberInput(order.tracking_number ?? ""),
   };
 }
 

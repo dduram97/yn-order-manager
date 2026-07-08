@@ -25,16 +25,18 @@ export function Pagination({
   unit = "건",
   onPageChange,
 }: PaginationProps) {
-  if (totalPages <= 1) return null;
+  if (totalCount <= 0) return null;
 
   const pages = getPageNumbers(page, totalPages);
+  const showPageButtons = totalPages > 1;
 
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-zinc-500">
         총 {totalCount.toLocaleString()}
-        {unit} · {page}/{totalPages} 페이지
+        {unit} · {page}/{Math.max(totalPages, 1)} 페이지
       </p>
+      {showPageButtons && (
       <div className="flex items-center gap-1">
         <button
           type="button"
@@ -68,6 +70,7 @@ export function Pagination({
           다음
         </button>
       </div>
+      )}
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DeliveryStatusBadge } from "@/components/orders/delivery-status-badge";
 import { CJ_COURIER_NAME } from "@/lib/constants/delivery";
+import { formatTrackingNumber } from "@/lib/validations/tracking-number";
 import type { DeliveryTrackItem, DeliveryTrackResponse } from "@/types/delivery";
 
 interface DeliveryTrackingModalProps {
@@ -186,7 +187,9 @@ function DeliveryTrackItemPanel({
       <dl className="grid gap-2 text-sm">
         <div className="flex gap-2">
           <dt className="w-20 shrink-0 text-zinc-500">송장번호</dt>
-          <dd className="font-medium text-zinc-900">{item.tracking_number}</dd>
+          <dd className="font-medium text-zinc-900">
+            {formatTrackingNumber(item.tracking_number) || "-"}
+          </dd>
         </div>
         <div className="flex items-center gap-2">
           <dt className="w-20 shrink-0 text-zinc-500">배송상태</dt>

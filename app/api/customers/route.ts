@@ -5,6 +5,18 @@ import { listCustomers } from "@/lib/supabase/customers";
 import { parseCustomerListParams } from "@/lib/validations/customer";
 import { normalizePhone } from "@/lib/validations/order";
 
+type OrdersPhoneRow = {
+  phone: string;
+  sent_at: string | null;
+  created_at: string;
+};
+
+function maxIso(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a > b ? a : b;
+}
+
 /**
  * GET - 고객 목록 조회 (?page, ?limit, ?search, ?vip=all|silver|gold)
  * 각 고객에 order_count, vip_level, vip_badge 포함
@@ -52,9 +64,42 @@ export async function GET(request: Request) {
       );
     }
 
+    const customers = (data ?? []) as Array<{
+      phone: string;
+      [key: string]: unknown;
+    }>;
+    const phones = Array.from(
+      new Set(customers.map((c) => String(c.phone)).filter(Boolean))
+    );
+
+    const lastSentByPhone = new Map<string, string>();
+    if (phones.length > 0) {
+      const { data: orders, error: ordersError } = await supabase
+        .from("orders")
+        .select("phone, sent_at, created_at")
+        .in("phone", phones);
+
+      if (ordersError) {
+        console.error("[GET /api/customers] ⚠️ orders 조회 오류:", ordersError);
+      } else {
+        const rows = (orders ?? []) as unknown as OrdersPhoneRow[];
+        for (const row of rows) {
+          const phone = String(row.phone ?? "");
+          if (!phone) continue;
+          const candidate = row.sent_at ?? row.created_at ?? null;
+          const prev = lastSentByPhone.get(phone) ?? null;
+          const next = maxIso(prev, candidate);
+          if (next) lastSentByPhone.set(phone, next);
+        }
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      data,
+      data: customers.map((c) => ({
+        ...c,
+        last_sent_at: lastSentByPhone.get(String(c.phone)) ?? null,
+      })),
       pagination,
       elapsedMs: elapsed,
     });

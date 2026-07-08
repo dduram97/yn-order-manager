@@ -15,6 +15,11 @@ export interface CustomerListItem {
 export type CustomerListItemWithVip = CustomerListItem &
   VipFields & {
     display_badge?: string;
+    /**
+     * 고객의 마지막 주문/발송 시각 (orders.sent_at 우선, 없으면 orders.created_at)
+     * 고객 목록 UI의 "최종 주문일" 컬럼에서 사용
+     */
+    last_sent_at?: string | null;
   };
 
 export type CustomerVipFilter = "all" | "silver" | "gold" | "favorite";
@@ -24,6 +29,10 @@ export interface CustomerListParams {
   limit: number;
   search?: string;
   vip?: CustomerVipFilter;
+  /** YYYY-MM-DD (KST) */
+  startDate?: string;
+  /** YYYY-MM-DD (KST) */
+  endDate?: string;
 }
 
 export interface CustomerListPagination {

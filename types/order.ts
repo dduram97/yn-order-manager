@@ -47,6 +47,8 @@ export interface OrderListDateRangeParams {
 export interface OrderListQueryParams extends OrderListDateRangeParams {
   page?: number;
   limit?: number;
+  /** 고객명·전화번호·송장번호 통합 검색 */
+  search?: string;
   customer_name?: string;
   phone?: string;
   /** 송장번호 검색 */

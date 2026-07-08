@@ -26,6 +26,7 @@ import type { AligoFailReason, AligoStatus } from "@/types/database";
 import {
   sanitizeTrackingNumberInput,
   validateTrackingNumber,
+  normalizeTrackingNumberForStorage,
 } from "@/lib/validations/tracking-number";
 import { Card } from "@/components/ui/card";
 
@@ -126,7 +127,7 @@ export function OrderRegistrationForm() {
       );
 
       const cleanedTrackingNumbers = trackingNumbers
-        .map((v) => v.trim())
+        .map((v) => normalizeTrackingNumberForStorage(v.trim()))
         .filter((v) => v !== "");
 
       if (cleanedTrackingNumbers.length === 0) {

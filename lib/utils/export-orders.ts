@@ -2,6 +2,7 @@ import { ALIGO_STATUS_LABEL } from "@/lib/constants/aligo";
 import { DELIVERY_STATUS_LABEL } from "@/lib/constants/delivery";
 import { resolveListDeliveryStatus } from "@/lib/delivery/display";
 import { formatDateTime, formatPhone } from "@/lib/utils/format";
+import { formatTrackingNumber } from "@/lib/validations/tracking-number";
 import type { OrderListItem } from "@/types/order";
 
 const CSV_HEADERS = [
@@ -30,7 +31,7 @@ function toExportRow(order: OrderListItem): string[] {
   return [
     order.customer_name,
     formatPhone(order.phone),
-    order.tracking_number || "-",
+    formatTrackingNumber(order.tracking_number) || "-",
     deliveryStatus ? DELIVERY_STATUS_LABEL[deliveryStatus] : "-",
     order.aligo_template_type || "-",
     ALIGO_STATUS_LABEL[order.aligo_status],

@@ -14,6 +14,55 @@ const CUSTOMER_LIST_COLUMNS_BASE =
   "id, name, phone, created_at, grade, is_favorite, favorite_at";
 const CUSTOMER_LIST_COLUMNS_WITH_VIP = `${CUSTOMER_LIST_COLUMNS_BASE}, order_count, vip_level`;
 
+type OrdersPhoneOnlyRow = {
+  phone: string;
+};
+
+function toKstRangeIso(startDate: string, endDate: string): {
+  startIso: string;
+  endIso: string;
+} {
+  const start = new Date(`${startDate}T00:00:00+09:00`);
+  const end = new Date(`${endDate}T23:59:59.999+09:00`);
+  return { startIso: start.toISOString(), endIso: end.toISOString() };
+}
+
+async function resolvePhonesWithOrdersInRange(
+  supabase: ServerSupabaseClient,
+  startDate: string,
+  endDate: string
+): Promise<Set<string>> {
+  const { startIso, endIso } = toKstRangeIso(startDate, endDate);
+  const phones = new Set<string>();
+
+  const { data: sentRows, error: sentError } = await supabase
+    .from("orders")
+    .select("phone")
+    .gte("sent_at", startIso)
+    .lte("sent_at", endIso);
+
+  if (sentError) throw sentError;
+  for (const row of (sentRows ?? []) as unknown as OrdersPhoneOnlyRow[]) {
+    const phone = String(row.phone ?? "");
+    if (phone) phones.add(phone);
+  }
+
+  const { data: createdRows, error: createdError } = await supabase
+    .from("orders")
+    .select("phone")
+    .is("sent_at", null)
+    .gte("created_at", startIso)
+    .lte("created_at", endIso);
+
+  if (createdError) throw createdError;
+  for (const row of (createdRows ?? []) as unknown as OrdersPhoneOnlyRow[]) {
+    const phone = String(row.phone ?? "");
+    if (phone) phones.add(phone);
+  }
+
+  return phones;
+}
+
 export interface UpsertCustomerPayload {
   name: string;
   phone: string;
@@ -57,13 +106,29 @@ export async function listCustomers(
   supabase: ServerSupabaseClient,
   params: CustomerListParams
 ) {
-  const { page, limit, search, vip } = params;
+  const { page, limit, search, vip, startDate, endDate } = params;
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
   let query = supabase
     .from("customers")
     .select(CUSTOMER_LIST_COLUMNS_WITH_VIP, { count: "exact" });
+
+  if (startDate && endDate) {
+    const phonesInRange = await resolvePhonesWithOrdersInRange(
+      supabase,
+      startDate,
+      endDate
+    );
+    if (phonesInRange.size === 0) {
+      return {
+        data: [],
+        pagination: { page, limit, totalCount: 0, totalPages: 0 },
+        error: null,
+      };
+    }
+    query = query.in("phone", Array.from(phonesInRange));
+  }
 
   if (vip === "favorite") {
     query = query.eq("is_favorite", true);
@@ -115,6 +180,19 @@ export async function listCustomers(
 
     const customers = (data ?? []) as CustomerListItem[];
     let enriched = await attachVipFieldsByPhone(supabase, customers);
+
+    if (startDate && endDate) {
+      try {
+        const phonesInRange = await resolvePhonesWithOrdersInRange(
+          supabase,
+          startDate,
+          endDate
+        );
+        enriched = enriched.filter((c) => phonesInRange.has(String(c.phone)));
+      } catch {
+        // 레거시 경로에서는 기간 필터 실패 시 목록 표시에 영향 최소화
+      }
+    }
 
     if (vip === "silver") {
       enriched = enriched.filter((c) => c.vip_level === "silver");

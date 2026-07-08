@@ -4,9 +4,12 @@ import {
   type AligoTemplateType,
 } from "@/lib/constants/aligo";
 import type { CreateOrderInput, OrderListDateRangeParams, OrderListParams, OrderListQueryParams, UpdateOrderInput } from "@/types/order";
+import {
+  normalizeTrackingNumberForStorage,
+  validateTrackingNumber,
+} from "@/lib/validations/tracking-number";
 import { getDefaultDateRange } from "@/lib/utils/format";
 import { resolveKstDateRange, getKstDateString } from "@/lib/utils/kst-date-range";
-import { validateTrackingNumber } from "@/lib/validations/tracking-number";
 
 export interface ValidationError {
   field: string;
@@ -145,9 +148,6 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
         ? [singleTracking]
         : undefined;
 
-  const firstTracking =
-    resolvedTrackingNumbers?.[0] ?? singleTracking;
-
   if (!resolvedTrackingNumbers || resolvedTrackingNumbers.length === 0) {
     errors.push({
       field: "tracking_number",
@@ -167,13 +167,17 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
     return { success: false, errors };
   }
 
+  const formattedTrackingNumbers = resolvedTrackingNumbers!.map((tn) =>
+    normalizeTrackingNumberForStorage(tn)
+  );
+
   return {
     success: true,
     data: {
       customer_name: (customer_name as string).trim(),
       phone: normalizePhone((phone as string).trim()),
-      tracking_number: firstTracking,
-      tracking_numbers: resolvedTrackingNumbers,
+      tracking_number: formattedTrackingNumbers[0],
+      tracking_numbers: formattedTrackingNumbers,
       sender_name:
         typeof sender_name === "string" && sender_name.trim() !== ""
           ? sender_name.trim()
@@ -317,7 +321,7 @@ export function validateUpdateOrderInput(
           if (trackingError) {
             errors.push({ field, message: trackingError });
           } else {
-            update.tracking_number = value.trim();
+            update.tracking_number = normalizeTrackingNumberForStorage(value);
           }
         }
         break;
@@ -542,6 +546,7 @@ export function parseOrderListQueryParams(searchParams: URLSearchParams): {
       ...dateResult.data,
       page: pageResult.data.page,
       limit: pageResult.data.limit,
+      search: pageResult.data.search,
       customer_name,
       phone,
       tracking_number,

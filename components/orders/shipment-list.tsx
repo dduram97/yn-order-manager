@@ -22,6 +22,7 @@ import {
   formatShortSentDate,
   getDefaultDateRange,
 } from "@/lib/utils/format";
+import { formatTrackingNumber } from "@/lib/validations/tracking-number";
 import type { DeliveryStatus } from "@/types/delivery";
 import type { OrderListItem, OrderListPagination } from "@/types/order";
 
@@ -40,15 +41,11 @@ interface OrdersApiResponse {
 }
 
 interface SearchFilters {
-  customer_name: string;
-  phone: string;
-  tracking_number: string;
+  search: string;
 }
 
 const EMPTY_FILTERS: SearchFilters = {
-  customer_name: "",
-  phone: "",
-  tracking_number: "",
+  search: "",
 };
 
 const TABLE_COLUMNS = [
@@ -127,14 +124,8 @@ export function ShipmentList() {
         page: String(page),
         limit: "20",
       });
-      if (appliedFilters.customer_name) {
-        params.set("customer_name", appliedFilters.customer_name);
-      }
-      if (appliedFilters.phone) {
-        params.set("phone", appliedFilters.phone);
-      }
-      if (appliedFilters.tracking_number) {
-        params.set("tracking_number", appliedFilters.tracking_number);
+      if (appliedFilters.search) {
+        params.set("search", appliedFilters.search);
       }
 
       try {
@@ -230,9 +221,7 @@ export function ShipmentList() {
     e.preventDefault();
     setPage(1);
     setAppliedFilters({
-      customer_name: draftFilters.customer_name.trim(),
-      phone: draftFilters.phone.trim(),
-      tracking_number: draftFilters.tracking_number.trim(),
+      search: draftFilters.search.trim(),
     });
   };
 
@@ -405,45 +394,17 @@ export function ShipmentList() {
               className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
             />
           </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-500">고객명</span>
+          <label className="block space-y-1.5 lg:col-span-3">
+            <span className="text-xs font-medium text-zinc-500">
+              고객명 또는 전화번호 또는 송장번호
+            </span>
             <input
               type="search"
-              value={draftFilters.customer_name}
+              value={draftFilters.search}
               onChange={(e) =>
-                setDraftFilters((prev) => ({
-                  ...prev,
-                  customer_name: e.target.value,
-                }))
+                setDraftFilters({ search: e.target.value })
               }
-              placeholder="고객명 검색"
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
-            />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-500">전화번호</span>
-            <input
-              type="search"
-              value={draftFilters.phone}
-              onChange={(e) =>
-                setDraftFilters((prev) => ({ ...prev, phone: e.target.value }))
-              }
-              placeholder="010-1234-5678"
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
-            />
-          </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-500">송장번호</span>
-            <input
-              type="search"
-              value={draftFilters.tracking_number}
-              onChange={(e) =>
-                setDraftFilters((prev) => ({
-                  ...prev,
-                  tracking_number: e.target.value,
-                }))
-              }
-              placeholder="송장번호 / 주문 ID"
+              placeholder="고객명 또는 전화번호 또는 송장번호 검색"
               className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
             />
           </label>
@@ -534,7 +495,7 @@ export function ShipmentList() {
                             }
                             className={`${CLICKABLE_TRACKING} whitespace-nowrap`}
                           >
-                            {order.tracking_number || "-"}
+                            {formatTrackingNumber(order.tracking_number) || "-"}
                           </button>
                         </div>
                       </td>
@@ -617,7 +578,7 @@ export function ShipmentList() {
                       onClick={(e) => handleDeliveryStatusClick(e, order)}
                       className={`text-sm tabular-nums ${CLICKABLE_TRACKING}`}
                     >
-                      송장 {order.tracking_number || "-"}
+                      송장 {formatTrackingNumber(order.tracking_number) || "-"}
                     </button>
                     {(() => {
                       const deliveryStatus = resolveListDeliveryStatus(

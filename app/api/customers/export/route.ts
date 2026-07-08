@@ -41,7 +41,12 @@ function maxIso(a: string | null, b: string | null): string | null {
 
 async function loadAllCustomers(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  params: { search?: string; vip?: "silver" | "gold" | "favorite" }
+  params: {
+    search?: string;
+    vip?: "silver" | "gold" | "favorite";
+    startDate?: string;
+    endDate?: string;
+  }
 ) {
   const limit = 100;
   let page = 1;
@@ -54,6 +59,8 @@ async function loadAllCustomers(
       limit,
       search: params.search,
       vip: params.vip,
+      startDate: params.startDate,
+      endDate: params.endDate,
     });
     if (result.error) {
       return { data: null, error: result.error };
@@ -102,6 +109,8 @@ export async function GET(request: Request) {
       {
         search: parsed.data.search,
         vip,
+        startDate: parsed.data.startDate,
+        endDate: parsed.data.endDate,
       }
     );
 

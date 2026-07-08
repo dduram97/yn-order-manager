@@ -6,6 +6,7 @@ const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
 const VIP_FILTERS: CustomerVipFilter[] = ["all", "silver", "gold", "favorite"];
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 export function parseCustomerListParams(searchParams: URLSearchParams): {
   success: true;
@@ -20,6 +21,8 @@ export function parseCustomerListParams(searchParams: URLSearchParams): {
   const limitRaw = searchParams.get("limit");
   const searchRaw = searchParams.get("search");
   const vipRaw = searchParams.get("vip");
+  const startDateRaw = searchParams.get("startDate");
+  const endDateRaw = searchParams.get("endDate");
 
   let page = DEFAULT_PAGE;
   let limit = DEFAULT_LIMIT;
@@ -65,6 +68,34 @@ export function parseCustomerListParams(searchParams: URLSearchParams): {
     }
   }
 
+  const startDate =
+    typeof startDateRaw === "string" && startDateRaw.trim() !== ""
+      ? startDateRaw.trim()
+      : undefined;
+  const endDate =
+    typeof endDateRaw === "string" && endDateRaw.trim() !== ""
+      ? endDateRaw.trim()
+      : undefined;
+
+  if (startDate && !DATE_REGEX.test(startDate)) {
+    errors.push({
+      field: "startDate",
+      message: "startDate는 YYYY-MM-DD 형식이어야 합니다.",
+    });
+  }
+  if (endDate && !DATE_REGEX.test(endDate)) {
+    errors.push({
+      field: "endDate",
+      message: "endDate는 YYYY-MM-DD 형식이어야 합니다.",
+    });
+  }
+  if (startDate && endDate && startDate > endDate) {
+    errors.push({
+      field: "dateRange",
+      message: "시작일은 종료일보다 클 수 없습니다.",
+    });
+  }
+
   if (errors.length > 0) {
     return { success: false, errors };
   }
@@ -76,6 +107,8 @@ export function parseCustomerListParams(searchParams: URLSearchParams): {
       limit,
       search,
       vip: vip === "all" ? undefined : vip,
+      startDate,
+      endDate,
     },
   };
 }

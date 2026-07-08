@@ -233,7 +233,7 @@ async function queryListOrders(
   columns: string,
   options?: { countOnly?: boolean; range?: { from: number; to: number } }
 ) {
-  const { startAt, endAt, customer_name, phone, tracking_number } = params;
+  const { startAt, endAt, search, customer_name, phone, tracking_number } = params;
 
   let query = supabase
     .from("orders")
@@ -241,19 +241,27 @@ async function queryListOrders(
     .gte("created_at", startAt)
     .lte("created_at", endAt);
 
-  if (customer_name) {
-    query = query.ilike("customer_name", `%${escapeIlike(customer_name)}%`);
-  }
-
-  if (phone) {
-    query = query.ilike("phone", `%${normalizePhone(phone)}%`);
-  }
-
-  if (tracking_number) {
-    const term = escapeIlike(tracking_number.trim());
+  if (search) {
+    const escaped = escapeIlike(search);
+    const normalizedPhone = normalizePhone(search);
     query = query.or(
-      `tracking_number.ilike.%${term}%,id.ilike.%${term}%`
+      `customer_name.ilike.%${escaped}%,phone.ilike.%${normalizedPhone}%,tracking_number.ilike.%${escaped}%,id.ilike.%${escaped}%`
     );
+  } else {
+    if (customer_name) {
+      query = query.ilike("customer_name", `%${escapeIlike(customer_name)}%`);
+    }
+
+    if (phone) {
+      query = query.ilike("phone", `%${normalizePhone(phone)}%`);
+    }
+
+    if (tracking_number) {
+      const term = escapeIlike(tracking_number.trim());
+      query = query.or(
+        `tracking_number.ilike.%${term}%,id.ilike.%${term}%`
+      );
+    }
   }
 
   query = query

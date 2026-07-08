@@ -70,10 +70,10 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
             className="min-w-0"
           >
             <p className="truncate text-lg font-bold text-zinc-900">
-              YN 알림톡 관리
+              유선주문 알림톡
             </p>
             <p className="truncate text-xs text-zinc-500">
-              택배 · 선물 발송 SaaS
+              오름과메기 ｜포항 영남수산
             </p>
           </Link>
 
