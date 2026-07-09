@@ -58,6 +58,19 @@ export async function trackOrderDelivery(
   try {
     const trackerData = await fetchSmartTrackerTracking(row.tracking_number);
 
+    console.log("[DeliveryAutoSync][trackOrderDelivery] SmartTracker raw", {
+      order_id: row.id,
+      tracking_number: row.tracking_number,
+      complete: trackerData.complete,
+      completeYN: trackerData.completeYN,
+      lastStateDetail: trackerData.lastStateDetail ?? null,
+      lastDetail: trackerData.lastDetail ?? null,
+      trackingDetailsLast:
+        trackerData.trackingDetails?.[trackerData.trackingDetails.length - 1] ??
+        null,
+      raw: trackerData,
+    });
+
     if (trackerData.status === false) {
       return {
         order_id: row.id,
@@ -74,6 +87,13 @@ export async function trackOrderDelivery(
     const deliveryStatus = mapSmartTrackerToDeliveryStatus(trackerData);
     const location = extractCurrentLocation(trackerData);
     const history = mapTrackingHistory(trackerData);
+
+    console.log("[DeliveryAutoSync][trackOrderDelivery] SmartTracker mapped", {
+      order_id: row.id,
+      tracking_number: row.tracking_number,
+      mapped_delivery_status: deliveryStatus,
+    });
+
     const lastHistory = history[history.length - 1];
     const trackingTime = lastHistory?.timeString
       ? new Date(lastHistory.timeString).toISOString()
