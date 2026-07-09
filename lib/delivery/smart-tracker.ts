@@ -37,7 +37,8 @@ export function mapSmartTrackerKindToDeliveryStatus(kind: string): DeliveryStatu
   const k = kind.trim();
   if (/배송완료|배달완료/.test(k)) return "delivered";
   if (/간선상차|간선하차|배송출발/.test(k)) return "in_transit";
-  if (/상품인수|집화처리/.test(k)) return "ready";
+  if (/상품인수/.test(k)) return "ready";
+  if (/집화처리/.test(k)) return "in_transit";
   if (k && k !== "-") return "in_transit";
   return "ready";
 }
