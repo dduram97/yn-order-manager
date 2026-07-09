@@ -105,7 +105,7 @@ export type TemplateFieldValues = Record<TemplateFieldKey, string>;
 /** Aligo templtCode — UI templateType ↔ 코드 (발송·조회 유일 기준) */
 export const ALIGO_TEMPLATE_CODES: Record<AligoTemplateType, string> = {
   택배발송알림: "UF_9460",
-  "선물보내는분 알림": "UI_9236",
+  "선물보내는분 알림": "UJ_3622",
   "선물받는분 알림": "UG_8203",
 };
 

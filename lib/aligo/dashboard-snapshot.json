@@ -12,7 +12,7 @@
       ]
     },
     "선물보내는분 알림": {
-      "templtCode": "UI_9236",
+      "templtCode": "UJ_3622",
       "templtName": "선물 보내는분 알림톡",
       "placeholders": [
         "#{메시지 수신 휴대폰 번호}",
