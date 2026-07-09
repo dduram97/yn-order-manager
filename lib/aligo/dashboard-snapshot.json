@@ -3,7 +3,7 @@
   "note": "npm run aligo:sync-templates 실행 시 Aligo API에서 자동 갱신됩니다.",
   "templates": {
     "택배발송알림": {
-      "templtCode": "UF_9460",
+      "templtCode": "UJ_3780",
       "templtName": "택배 발송알림",
       "placeholders": [
         "#{메시지 수신 휴대폰 번호}",
@@ -22,7 +22,7 @@
       ]
     },
     "선물받는분 알림": {
-      "templtCode": "UG_8203",
+      "templtCode": "UJ_3779",
       "templtName": "선물 받는분 알림톡",
       "placeholders": [
         "#{메시지 수신 휴대폰 번호}",

@@ -19,9 +19,9 @@ const ENV_FILE = path.join(ROOT, ".env.local");
 const TEMPLATE_TYPES = ["택배발송알림", "선물보내는분 알림", "선물받는분 알림"];
 
 const TEMPLATE_CODES = {
-  "택배발송알림": "UF_9460",
+  "택배발송알림": "UJ_3780",
   "선물보내는분 알림": "UJ_3622",
-  "선물받는분 알림": "UG_8203",
+  "선물받는분 알림": "UJ_3779",
 };
 
 const PLACEHOLDER_PATTERN = /#\{[^}]+\}/g;
