@@ -68,7 +68,7 @@ export async function trackOrderDelivery(
       trackingDetailsLast:
         trackerData.trackingDetails?.[trackerData.trackingDetails.length - 1] ??
         null,
-      raw: trackerData,
+      raw: JSON.stringify(trackerData, null, 2),
     });
 
     if (trackerData.status === false) {
