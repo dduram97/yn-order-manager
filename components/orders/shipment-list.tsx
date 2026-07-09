@@ -167,6 +167,19 @@ export function ShipmentList() {
           )
           .map((order) => order.id);
 
+        console.log("[DeliveryAutoSync][ShipmentList] orders fetched", {
+          ordersLength: (json.data ?? []).length,
+          eligibleIdsLength: eligibleIds.length,
+          eligibleIds,
+          orders: (json.data ?? []).map((order) => ({
+            id: order.id,
+            aligo_status: order.aligo_status,
+            tracking_number: order.tracking_number,
+            delivery_status: order.delivery_status,
+            delivery_updated_at: order.delivery_updated_at,
+          })),
+        });
+
         if (eligibleIds.length > 0) {
           void (async () => {
             try {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface AdminMemoModalProps {
   open: boolean;
@@ -21,12 +21,54 @@ export function AdminMemoModal({ open, onClose }: AdminMemoModalProps) {
 
   const lastSavedRef = useRef<string>("");
   const saveTimerRef = useRef<number | null>(null);
+  const contentRef = useRef(content);
 
-  const canClose = useMemo(() => !loading, [loading]);
+  const canClose = useMemo(() => !loading && !saving, [loading, saving]);
+
+  useEffect(() => {
+    contentRef.current = content;
+  }, [content]);
+
+  const saveMemo = useCallback(async (text: string): Promise<boolean> => {
+    const res = await fetch("/api/admin/memo", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: text }),
+    });
+    const json: MemoApiResponse = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(
+        (json as { message?: string }).message || "메모 저장에 실패했습니다."
+      );
+    }
+    lastSavedRef.current = json.data.content ?? "";
+    return true;
+  }, []);
+
+  const flushPendingSave = useCallback(async () => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    const pending = contentRef.current;
+    if (pending === lastSavedRef.current) return;
+
+    setSaving(true);
+    try {
+      await saveMemo(pending);
+    } catch {
+      // 저장 실패는 조용히 허용
+    } finally {
+      setSaving(false);
+    }
+  }, [saveMemo]);
 
   const handleClose = () => {
     if (!canClose) return;
-    onClose();
+    void flushPendingSave().finally(() => {
+      onClose();
+    });
   };
 
   useEffect(() => {
@@ -46,7 +88,7 @@ export function AdminMemoModal({ open, onClose }: AdminMemoModalProps) {
         }
         setContent(json.data.content ?? "");
         lastSavedRef.current = json.data.content ?? "";
-      } catch (err) {
+      } catch {
         // API 오류는 UI에 노출하지 않음 (운영자 개인 메모는 조용히 실패 허용)
       } finally {
         setLoading(false);
@@ -69,7 +111,6 @@ export function AdminMemoModal({ open, onClose }: AdminMemoModalProps) {
   useEffect(() => {
     if (!open) return;
     if (loading) return;
-
     if (content === lastSavedRef.current) return;
 
     if (saveTimerRef.current) {
@@ -80,19 +121,8 @@ export function AdminMemoModal({ open, onClose }: AdminMemoModalProps) {
       void (async () => {
         setSaving(true);
         try {
-          const res = await fetch("/api/admin/memo", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content }),
-          });
-          const json: MemoApiResponse = await res.json();
-          if (!res.ok || !json.success) {
-            throw new Error(
-              (json as { message?: string }).message || "메모 저장에 실패했습니다."
-            );
-          }
-          lastSavedRef.current = json.data.content ?? "";
-        } catch (err) {
+          await saveMemo(content);
+        } catch {
           // 저장 실패도 UI에 노출하지 않음
         } finally {
           setSaving(false);
@@ -103,9 +133,32 @@ export function AdminMemoModal({ open, onClose }: AdminMemoModalProps) {
     return () => {
       if (saveTimerRef.current) {
         window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
       }
     };
-  }, [content, open, loading]);
+  }, [content, open, loading, saveMemo]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onBeforeUnload = () => {
+      const pending = contentRef.current;
+      if (pending === lastSavedRef.current) return;
+
+      void fetch("/api/admin/memo", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: pending }),
+        keepalive: true,
+      });
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      void flushPendingSave();
+    };
+  }, [open, flushPendingSave]);
 
   if (!open) return null;
 
@@ -170,4 +223,3 @@ export function AdminMemoModal({ open, onClose }: AdminMemoModalProps) {
     </div>
   );
 }
-

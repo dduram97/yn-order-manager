@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/require-auth";
-import { DELIVERY_AUTO_SYNC_MAX_ORDERS } from "@/lib/constants/delivery";
+import {
+  DELIVERY_AUTO_SYNC_MAX_ORDERS,
+  DELIVERY_AUTO_SYNC_MIN_INTERVAL_MS,
+} from "@/lib/constants/delivery";
 import { isEligibleForAutoDeliverySync } from "@/lib/delivery/sync-eligibility";
 import { trackOrderDelivery } from "@/lib/delivery/track-order";
 import { createClient } from "@/lib/supabase/server";
@@ -35,6 +38,9 @@ export async function POST(request: Request) {
   }
 
   const orderIdsRaw = (body as { orderIds?: unknown })?.orderIds;
+  console.log("[DeliveryAutoSync][api/delivery/sync] received body.orderIds", {
+    orderIds: orderIdsRaw,
+  });
   if (!Array.isArray(orderIdsRaw)) {
     return NextResponse.json(
       { success: false, message: "orderIds 배열이 필요합니다." },
@@ -86,20 +92,70 @@ export async function POST(request: Request) {
       })
     );
 
+    const excluded = orders
+      .filter((order) => !eligible.some((e) => e.id === order.id))
+      .map((order) => {
+        const reasons: string[] = [];
+
+        if (order.aligo_status !== "success") {
+          reasons.push("aligo_status");
+        }
+
+        if (!order.tracking_number?.trim()) {
+          reasons.push("tracking_number");
+        }
+
+        const status =
+          (order.delivery_status as DeliveryStatus | null) ?? "ready";
+        if (status === "delivered") {
+          reasons.push("delivery_status(delivered)");
+        } else if (status !== "ready" && status !== "in_transit") {
+          reasons.push(`delivery_status(${String(order.delivery_status)})`);
+        }
+
+        // ready는 즉시 대상이므로 cooldown 사유에서 제외
+        if (status === "in_transit") {
+          if (order.delivery_updated_at) {
+            const updatedAtMs = new Date(order.delivery_updated_at).getTime();
+            if (!Number.isNaN(updatedAtMs)) {
+              const elapsed = Date.now() - updatedAtMs;
+              if (elapsed < DELIVERY_AUTO_SYNC_MIN_INTERVAL_MS) {
+                reasons.push("cooldown");
+              }
+            }
+          }
+        }
+
+        return {
+          id: order.id,
+          reasons: reasons.length ? reasons : ["unknown"],
+          aligo_status: order.aligo_status,
+          tracking_number: order.tracking_number,
+          delivery_status: order.delivery_status,
+          delivery_updated_at: order.delivery_updated_at,
+        };
+      });
+
+    console.log("[DeliveryAutoSync][api/delivery/sync] eligibility result", {
+      ordersLength: orders.length,
+      eligibleLength: eligible.length,
+      excluded,
+    });
+
     const updates: DeliverySyncUpdate[] = [];
 
     for (const row of eligible) {
-      const result = await trackOrderDelivery(
-        supabase,
-        {
-          id: row.id,
-          tracking_number: row.tracking_number,
-          aligo_status: row.aligo_status,
-          delivery_status: row.delivery_status as DeliveryStatus | null,
-          delivery_location: row.delivery_location,
-        },
-        { touchUpdatedAtOnAttempt: true }
-      );
+      console.log("[DeliveryAutoSync][api/delivery/sync] tracking target", {
+        order_id: row.id,
+        tracking_number: row.tracking_number,
+      });
+      const result = await trackOrderDelivery(supabase, {
+        id: row.id,
+        tracking_number: row.tracking_number,
+        aligo_status: row.aligo_status,
+        delivery_status: row.delivery_status as DeliveryStatus | null,
+        delivery_location: row.delivery_location,
+      });
 
       if (result.query_success) {
         updates.push({

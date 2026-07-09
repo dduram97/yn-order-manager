@@ -208,7 +208,6 @@ export async function recordAligoSendOutcome(
         sent_at: now,
         aligo_response: input.aligoResponse ?? null,
         delivery_status: "ready",
-        delivery_updated_at: now,
         delivery_location: null,
         ...(input.incrementRetry
           ? { retry_count: nextRetryCount, last_retry_at: now }

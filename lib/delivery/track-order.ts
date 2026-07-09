@@ -8,7 +8,6 @@ import {
 import type { createClient } from "@/lib/supabase/server";
 import {
   insertDeliveryTrackingLog,
-  touchDeliveryUpdatedAt,
   updateOrderDeliveryStatus,
 } from "@/lib/supabase/delivery";
 import type { DeliveryStatus, DeliveryTrackItem } from "@/types/delivery";
@@ -23,15 +22,9 @@ export interface TrackOrderDeliveryRow {
   delivery_location?: string | null;
 }
 
-export interface TrackOrderDeliveryOptions {
-  /** 자동 갱신 시 API 호출 시도 후 delivery_updated_at 갱신 (과다 호출 방지) */
-  touchUpdatedAtOnAttempt?: boolean;
-}
-
 export async function trackOrderDelivery(
   supabase: ServerSupabaseClient,
-  row: TrackOrderDeliveryRow,
-  options?: TrackOrderDeliveryOptions
+  row: TrackOrderDeliveryRow
 ): Promise<DeliveryTrackItem> {
   const fallbackStatus = resolveTrackDeliveryStatus(
     row.aligo_status,
@@ -62,15 +55,8 @@ export async function trackOrderDelivery(
     };
   }
 
-  let attemptedApi = false;
-
   try {
-    attemptedApi = true;
     const trackerData = await fetchSmartTrackerTracking(row.tracking_number);
-
-    if (options?.touchUpdatedAtOnAttempt) {
-      await touchDeliveryUpdatedAt(supabase, row.id);
-    }
 
     if (trackerData.status === false) {
       return {
@@ -93,6 +79,9 @@ export async function trackOrderDelivery(
       ? new Date(lastHistory.timeString).toISOString()
       : new Date().toISOString();
 
+    const beforeStatus =
+      (row.delivery_status as DeliveryStatus | null) ?? "ready";
+
     const { error: updateError } = await updateOrderDeliveryStatus(
       supabase,
       row.id,
@@ -108,6 +97,12 @@ export async function trackOrderDelivery(
         "[trackOrderDelivery] delivery_status 저장 실패:",
         updateError.message
       );
+    } else {
+      console.log("[DeliveryAutoSync][trackOrderDelivery] DB update success", {
+        order_id: row.id,
+        before_delivery_status: beforeStatus,
+        after_delivery_status: deliveryStatus,
+      });
     }
 
     const { error: logError } = await insertDeliveryTrackingLog(supabase, {
@@ -132,10 +127,6 @@ export async function trackOrderDelivery(
       query_success: true,
     };
   } catch (trackError) {
-    if (options?.touchUpdatedAtOnAttempt && attemptedApi) {
-      await touchDeliveryUpdatedAt(supabase, row.id);
-    }
-
     const message =
       trackError instanceof Error ? trackError.message : String(trackError);
     console.error(

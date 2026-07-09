@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/require-auth";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { AdminPrivateMemo } from "@/types/admin-memo";
 
 type MemoApiResponse =
@@ -13,7 +13,7 @@ export async function GET() {
   const auth = await requireAuth({ adminOnly: true });
   if (auth.error) return auth.error;
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data: rawData, error } = await supabase
     .from("admin_private_memos")
     .select("content, updated_at")
@@ -64,7 +64,7 @@ export async function PUT(request: Request) {
     );
   }
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data: rawData, error } = await supabase
     .from("admin_private_memos")
     .upsert(
