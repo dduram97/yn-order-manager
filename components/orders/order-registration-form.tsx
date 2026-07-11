@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AligoStatusBadge } from "@/components/orders/aligo-status-badge";
 import { AllCustomersPicker } from "@/components/orders/all-customers-picker";
 import { FavoriteCustomersPicker } from "@/components/orders/favorite-customers-picker";
+import { OrderAttributeFields } from "@/components/orders/order-attribute-fields";
 import { TemplateSelector } from "@/components/orders/template-selector";
 import { TrackingNumbersInput } from "@/components/orders/tracking-numbers-input";
 import { TemplateVariableFields } from "@/components/orders/template-variable-fields";
@@ -15,6 +16,12 @@ import {
   DEFAULT_ALIGO_TEMPLATE_TYPE,
   type AligoTemplateType,
 } from "@/lib/constants/aligo";
+import {
+  ORDER_PRODUCT_PRESETS,
+  WIRED_ORDER_CHANNEL,
+  resolveAttributeValue,
+  type OrderAttributeSelection,
+} from "@/lib/constants/order-attributes";
 import {
   createEmptyFieldValues,
   fieldValuesToOrderData,
@@ -28,6 +35,10 @@ import {
   validateTrackingNumber,
   normalizeTrackingNumberForStorage,
 } from "@/lib/validations/tracking-number";
+import {
+  loadLastOrderAttributes,
+  saveLastOrderAttributes,
+} from "@/lib/utils/last-order-attributes";
 import { Card } from "@/components/ui/card";
 
 interface SendResultItem {
@@ -73,13 +84,30 @@ export function OrderRegistrationForm() {
     useState<TemplateFieldValues>(createEmptyFieldValues);
   const [trackingNumbers, setTrackingNumbers] = useState<string[]>([""]);
   const [memo, setMemo] = useState("");
+  const [selectedCustomerMemo, setSelectedCustomerMemo] = useState<string | null>(
+    null
+  );
+  const [product, setProduct] = useState<OrderAttributeSelection>({
+    preset: ORDER_PRODUCT_PRESETS[0],
+    other: "",
+  });
+
+  useEffect(() => {
+    const last = loadLastOrderAttributes();
+    setProduct(last.product);
+  }, []);
 
   const handleFieldChange = (key: TemplateFieldKey, value: string) => {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleCustomerSelect = (updates: Partial<TemplateFieldValues>) => {
+  const handleCustomerSelect = (
+    updates: Partial<TemplateFieldValues>,
+    meta?: { memo?: string | null }
+  ) => {
     setFieldValues((prev) => ({ ...prev, ...updates }));
+    const nextMemo = meta?.memo?.trim() ? meta.memo.trim() : null;
+    setSelectedCustomerMemo(nextMemo);
     showToast("고객 정보가 입력되었습니다.");
   };
 
@@ -113,6 +141,7 @@ export function OrderRegistrationForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setSubmitting(true);
     setError(null);
     setAligoMessage(null);
@@ -125,6 +154,16 @@ export function OrderRegistrationForm() {
         templateType,
         orderData
       );
+
+      const orderProduct = resolveAttributeValue(
+        product.preset,
+        product.other,
+        ORDER_PRODUCT_PRESETS
+      );
+
+      if (!orderProduct) {
+        throw new Error("주문상품을 선택하거나 기타 내용을 입력해주세요.");
+      }
 
       const cleanedTrackingNumbers = trackingNumbers
         .map((v) => normalizeTrackingNumberForStorage(v.trim()))
@@ -152,6 +191,8 @@ export function OrderRegistrationForm() {
           tracking_number: cleanedTrackingNumbers[0],
           tracking_numbers: cleanedTrackingNumbers,
           memo: memo.trim() || undefined,
+          order_channel: WIRED_ORDER_CHANNEL,
+          order_product: orderProduct,
           aligo_template_type: templateType,
         }),
       });
@@ -163,6 +204,11 @@ export function OrderRegistrationForm() {
           json.errors?.map((item) => item.message).join(", ") || json.message;
         throw new Error(detail || "발송 등록에 실패했습니다.");
       }
+
+      saveLastOrderAttributes({
+        channel: loadLastOrderAttributes().channel,
+        product,
+      });
 
       const isMulti = (json.results?.length ?? 0) > 1;
 
@@ -254,6 +300,25 @@ export function OrderRegistrationForm() {
             omitKeys={["tracking_number"]}
             disabled={submitting}
           />
+          {selectedCustomerMemo ? (
+            <div className="mt-3 rounded-lg border border-zinc-100 bg-zinc-50 px-3 py-2.5">
+              <p className="text-xs font-medium text-zinc-500">메모</p>
+              <p className="mt-1 whitespace-pre-wrap break-words text-sm text-zinc-700">
+                {selectedCustomerMemo}
+              </p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="mb-4">
+          <OrderAttributeFields
+            channel={{ preset: WIRED_ORDER_CHANNEL, other: "" }}
+            product={product}
+            showChannel={false}
+            disabled={submitting}
+            onChannelChange={() => {}}
+            onProductChange={setProduct}
+          />
         </div>
 
         <div className="space-y-1.5">
@@ -268,12 +333,12 @@ export function OrderRegistrationForm() {
         </div>
       </Card>
 
-      <Card title="3. 메모 (선택)">
+      <Card title="3. 관리자 메모 (선택)">
         <textarea
           value={memo}
           onChange={(e) => setMemo(e.target.value)}
           rows={3}
-          placeholder="고객 관련 메모 (선택 입력)"
+          placeholder="관리자 메모 (선택 입력)"
           className="w-full resize-y rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
         />
       </Card>

@@ -63,6 +63,9 @@ export interface Customer {
   grade?: VipLevel;
   is_favorite?: boolean;
   favorite_at?: string | null;
+  memo?: string | null;
+  order_channel?: string | null;
+  order_product?: string | null;
 }
 
 export interface AppUserRow {
@@ -166,6 +169,9 @@ export interface Database {
           grade?: VipLevel;
           is_favorite?: boolean;
           favorite_at?: string | null;
+          memo?: string | null;
+          order_channel?: string | null;
+          order_product?: string | null;
         };
         Update: {
           id?: string;
@@ -177,6 +183,9 @@ export interface Database {
           grade?: VipLevel;
           is_favorite?: boolean;
           favorite_at?: string | null;
+          memo?: string | null;
+          order_channel?: string | null;
+          order_product?: string | null;
         };
         Relationships: [];
       };
@@ -213,6 +222,45 @@ export interface Database {
           content?: string;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      customer_order_statistics: {
+        Row: {
+          id: string;
+          customer_id: string;
+          order_channel: string;
+          order_product: string;
+          source: "order_registration" | "customer_add";
+          source_ref: string;
+          created_at: string;
+          year: number;
+          month: number;
+          day: number;
+        };
+        Insert: {
+          id?: string;
+          customer_id: string;
+          order_channel: string;
+          order_product: string;
+          source: "order_registration" | "customer_add";
+          source_ref: string;
+          created_at?: string;
+          year: number;
+          month: number;
+          day: number;
+        };
+        Update: {
+          id?: string;
+          customer_id?: string;
+          order_channel?: string;
+          order_product?: string;
+          source?: "order_registration" | "customer_add";
+          source_ref?: string;
+          created_at?: string;
+          year?: number;
+          month?: number;
+          day?: number;
         };
         Relationships: [];
       };

@@ -6,7 +6,10 @@ import {
   CustomerCreateModal,
   type CreatedCustomer,
 } from "@/components/customers/customer-create-modal";
+import { CustomerCrmModal } from "@/components/customers/customer-crm-modal";
+import { CustomerEditModal } from "@/components/customers/customer-edit-modal";
 import { CustomerNameWithBadge } from "@/components/orders/customer-name-with-badge";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
@@ -78,6 +81,9 @@ export function CustomerList() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<CustomerListItemWithVip[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
+  const [crmOpen, setCrmOpen] = useState(false);
+  const [editCustomer, setEditCustomer] =
+    useState<CustomerListItemWithVip | null>(null);
   const [memoOpen, setMemoOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [copying, setCopying] = useState(false);
@@ -87,6 +93,10 @@ export function CustomerList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,6 +126,7 @@ export function CustomerList() {
 
         setData(json.data);
         setPagination(json.pagination);
+        setSelectedIds(new Set());
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "오류가 발생했습니다.");
@@ -132,7 +143,7 @@ export function CustomerList() {
     return () => {
       cancelled = true;
     };
-  }, [page, query, vipFilter, startDate, endDate]);
+  }, [page, query, vipFilter, startDate, endDate, reloadKey]);
 
   useEffect(() => {
     setPage(1);
@@ -296,6 +307,56 @@ export function CustomerList() {
     }
   };
 
+  const allVisibleSelected =
+    data.length > 0 && data.every((customer) => selectedIds.has(customer.id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(data.map((customer) => customer.id)));
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/customers", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      const json: { success: boolean; message?: string } = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "고객 삭제에 실패했습니다.");
+      }
+
+      setConfirmOpen(false);
+      setSelectedIds(new Set());
+      setReloadKey((key) => key + 1);
+      showToast("선택한 고객을 삭제했습니다.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "고객 삭제에 실패했습니다.");
+      setConfirmOpen(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <Toast toast={toast} onDismiss={dismissToast} />
@@ -322,10 +383,17 @@ export function CustomerList() {
             </button>
             <button
               type="button"
+              onClick={() => setCrmOpen(true)}
+              className="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 sm:border-zinc-200 sm:px-4 sm:py-2.5"
+            >
+              기존고객추가
+            </button>
+            <button
+              type="button"
               onClick={() => setCreateOpen(true)}
               className="shrink-0 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 sm:px-4 sm:py-2.5"
             >
-              + 고객 추가
+              네이버 주문
             </button>
           </div>
         }
@@ -357,10 +425,41 @@ export function CustomerList() {
                 : prev
             );
             setPage(1);
+          } else {
+            setReloadKey((key) => key + 1);
           }
+          showToast("네이버 주문을 저장했습니다.");
+        }}
+      />
+      <CustomerCrmModal
+        open={crmOpen}
+        onClose={() => setCrmOpen(false)}
+        onCreated={() => {
+          setReloadKey((key) => key + 1);
+          showToast("기존고객을 저장했습니다.");
+        }}
+      />
+      <CustomerEditModal
+        open={editCustomer != null}
+        customer={editCustomer}
+        onClose={() => setEditCustomer(null)}
+        onUpdated={(updated) => {
+          setData((prev) =>
+            prev.map((item) => (item.id === updated.id ? updated : item))
+          );
+          showToast("고객 정보를 저장했습니다.");
         }}
       />
       <AdminMemoModal open={memoOpen} onClose={() => setMemoOpen(false)} />
+      <ConfirmDialog
+        open={confirmOpen}
+        message="선택한 항목을 삭제하시겠습니까?"
+        loading={deleting}
+        onCancel={() => {
+          if (!deleting) setConfirmOpen(false);
+        }}
+        onConfirm={() => void handleDeleteSelected()}
+      />
 
       <div className="flex flex-wrap gap-2">
         {VIP_TABS.map((tab) => {
@@ -511,7 +610,16 @@ export function CustomerList() {
               <table className="min-w-full divide-y divide-zinc-200">
                 <thead className="bg-zinc-50">
                   <tr>
-                    {["고객명", "전화번호", "발송 횟수", "최종 주문일", "등록일"].map(
+                    <th className="w-10 px-4 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAll}
+                        aria-label="전체 선택"
+                        className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                      />
+                    </th>
+                    {["고객명", "전화번호", "메모", "발송 횟수", "최종 주문일", "등록일"].map(
                       (col) => (
                         <th
                           key={col}
@@ -526,6 +634,15 @@ export function CustomerList() {
                 <tbody className="divide-y divide-zinc-100">
                   {data.map((customer) => (
                     <tr key={customer.id} className="hover:bg-zinc-50">
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(customer.id)}
+                          onChange={() => toggleSelectOne(customer.id)}
+                          aria-label={`${customer.name} 선택`}
+                          className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-medium text-zinc-900">
                         <div className="flex items-center gap-2">
                           <CustomerFavoriteStar
@@ -533,14 +650,29 @@ export function CustomerList() {
                             disabled={togglingId === customer.id}
                             onToggle={() => handleToggleFavorite(customer)}
                           />
-                          <CustomerNameWithBadge
-                            name={customer.name}
-                            badge={customer.display_badge ?? customer.vip_badge}
-                          />
+                          <button
+                            type="button"
+                            onClick={() => setEditCustomer(customer)}
+                            className="text-left transition hover:text-zinc-600 hover:underline"
+                          >
+                            <CustomerNameWithBadge
+                              name={customer.name}
+                              badge={customer.display_badge ?? customer.vip_badge}
+                            />
+                          </button>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-zinc-600">
                         {formatPhone(customer.phone)}
+                      </td>
+                      <td className="max-w-[12rem] px-4 py-3 text-sm text-zinc-500">
+                        {customer.memo?.trim() ? (
+                          <p className="line-clamp-2 whitespace-pre-wrap break-words">
+                            {customer.memo}
+                          </p>
+                        ) : (
+                          <span className="text-zinc-400">-</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm text-zinc-600">
                         {customer.order_count}건
@@ -564,21 +696,37 @@ export function CustomerList() {
                 <div key={customer.id} className="px-4 py-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(customer.id)}
+                        onChange={() => toggleSelectOne(customer.id)}
+                        aria-label={`${customer.name} 선택`}
+                        className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                      />
                       <CustomerFavoriteStar
                         isFavorite={customer.is_favorite ?? false}
                         disabled={togglingId === customer.id}
                         onToggle={() => handleToggleFavorite(customer)}
                       />
                       <div>
-                        <p className="font-medium text-zinc-900">
+                        <button
+                          type="button"
+                          onClick={() => setEditCustomer(customer)}
+                          className="text-left font-medium text-zinc-900 transition hover:text-zinc-600 hover:underline"
+                        >
                           <CustomerNameWithBadge
                             name={customer.name}
                             badge={customer.display_badge ?? customer.vip_badge}
                           />
-                        </p>
+                        </button>
                         <p className="mt-1 text-sm text-zinc-500">
                           {formatPhone(customer.phone)}
                         </p>
+                        {customer.memo?.trim() ? (
+                          <p className="mt-2 line-clamp-2 whitespace-pre-wrap break-words text-xs text-zinc-500">
+                            {customer.memo}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <VipBadge badge={customer.display_badge ?? customer.vip_badge} />
@@ -598,6 +746,19 @@ export function CustomerList() {
           </>
         )}
       </div>
+
+      {!loading && !error && data.length > 0 && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={selectedIds.size === 0 || deleting}
+            onClick={() => setConfirmOpen(true)}
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            선택 삭제
+          </button>
+        </div>
+      )}
 
       {!loading && !error && pagination && pagination.totalCount > 0 && (
         <Pagination

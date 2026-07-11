@@ -6,6 +6,7 @@ import { AligoStatusBadge } from "@/components/orders/aligo-status-badge";
 import { CustomerNameWithBadge } from "@/components/orders/customer-name-with-badge";
 import { DeliveryStatusBadge } from "@/components/orders/delivery-status-badge";
 import { DeliveryTrackingModal } from "@/components/orders/delivery-tracking-modal";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Pagination } from "@/components/ui/pagination";
@@ -107,6 +108,10 @@ export function ShipmentList() {
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trackingOrder, setTrackingOrder] = useState<OrderListItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const rangeLabel = formatDateRangeLabel(startDate, endDate);
 
@@ -141,6 +146,7 @@ export function ShipmentList() {
         }
 
         setOrders(json.data ?? []);
+        setSelectedIds(new Set());
         if (json.pagination) {
           setPagination(json.pagination);
         } else if (
@@ -228,7 +234,7 @@ export function ShipmentList() {
     return () => {
       cancelled = true;
     };
-  }, [startDate, endDate, appliedFilters, page]);
+  }, [startDate, endDate, appliedFilters, page, reloadKey]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -320,6 +326,57 @@ export function ShipmentList() {
       setCopying(false);
     }
   }, [orders]);
+
+  const allVisibleSelected =
+    orders.length > 0 && orders.every((order) => selectedIds.has(order.id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(orders.map((order) => order.id)));
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/orders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      const json: { success: boolean; message?: string } = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json.message || "발송 내역 삭제에 실패했습니다.");
+      }
+
+      setConfirmOpen(false);
+      setSelectedIds(new Set());
+      setReloadKey((key) => key + 1);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "발송 내역 삭제에 실패했습니다."
+      );
+      setConfirmOpen(false);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const toolbar = (
     <div className="flex gap-2 overflow-x-auto pb-1">
@@ -455,12 +512,22 @@ export function ShipmentList() {
             <div className="hidden overflow-x-auto md:block">
               <table className="w-full table-fixed divide-y divide-zinc-200">
                 <colgroup>
+                  <col style={{ width: "5%" }} />
                   {TABLE_COLUMNS.map((col) => (
                     <col key={col.key} style={{ width: col.width }} />
                   ))}
                 </colgroup>
                 <thead className="bg-zinc-50">
                   <tr>
+                    <th className={TABLE_HEAD_CELL}>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAll}
+                        aria-label="전체 선택"
+                        className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                      />
+                    </th>
                     {TABLE_COLUMNS.map((col) => (
                       <th key={col.key} className={TABLE_HEAD_CELL}>
                         {col.label}
@@ -474,6 +541,18 @@ export function ShipmentList() {
                       key={order.id}
                       className="transition hover:bg-zinc-50"
                     >
+                      <td className={TABLE_BODY_CELL}>
+                        <div className={TABLE_CELL_INNER}>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(order.id)}
+                            onChange={() => toggleSelectOne(order.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            aria-label={`${order.customer_name} 선택`}
+                            className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                          />
+                        </div>
+                      </td>
                       <td className={`${TABLE_BODY_CELL} font-medium`}>
                         <div className={TABLE_CELL_INNER}>
                           <button
@@ -568,6 +647,15 @@ export function ShipmentList() {
                   key={order.id}
                   className="w-full px-4 py-4 text-center"
                 >
+                  <div className="mb-3 flex justify-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(order.id)}
+                      onChange={() => toggleSelectOne(order.id)}
+                      aria-label={`${order.customer_name} 선택`}
+                      className="h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900/20"
+                    />
+                  </div>
                   <div className="flex flex-col items-center gap-2">
                     <button
                       type="button"
@@ -628,6 +716,29 @@ export function ShipmentList() {
           </>
         )}
       </div>
+
+      {!loading && !error && orders.length > 0 && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={selectedIds.size === 0 || deleting}
+            onClick={() => setConfirmOpen(true)}
+            className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            선택 삭제
+          </button>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        message="선택한 항목을 삭제하시겠습니까?"
+        loading={deleting}
+        onCancel={() => {
+          if (!deleting) setConfirmOpen(false);
+        }}
+        onConfirm={() => void handleDeleteSelected()}
+      />
 
       <DeliveryTrackingModal
         open={trackingOrder != null}

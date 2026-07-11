@@ -3,6 +3,7 @@ import {
   ALIGO_TEMPLATE_OPTIONS,
   type AligoTemplateType,
 } from "@/lib/constants/aligo";
+import { WIRED_ORDER_CHANNEL } from "@/lib/constants/order-attributes";
 import type { CreateOrderInput, OrderListDateRangeParams, OrderListParams, OrderListQueryParams, UpdateOrderInput } from "@/types/order";
 import {
   normalizeTrackingNumberForStorage,
@@ -40,6 +41,8 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
 
   const { customer_name, phone, tracking_number, sender_name, receiver_name, memo } =
     body as Record<string, unknown>;
+  const orderChannelRaw = (body as Record<string, unknown>).order_channel;
+  const orderProductRaw = (body as Record<string, unknown>).order_product;
   const errors: ValidationError[] = [];
 
   if (typeof customer_name !== "string" || customer_name.trim() === "") {
@@ -58,6 +61,24 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
     errors.push({
       field: "phone",
       message: "전화번호 형식이 올바르지 않습니다. (예: 010-1234-5678)",
+    });
+  }
+
+  if (
+    orderChannelRaw !== undefined &&
+    orderChannelRaw !== null &&
+    typeof orderChannelRaw !== "string"
+  ) {
+    errors.push({
+      field: "order_channel",
+      message: "주문채널은 문자열이어야 합니다.",
+    });
+  }
+
+  if (typeof orderProductRaw !== "string" || orderProductRaw.trim() === "") {
+    errors.push({
+      field: "order_product",
+      message: "주문상품은 필수입니다.",
     });
   }
 
@@ -188,6 +209,9 @@ export function validateCreateOrderInput(body: unknown): ValidationResult {
           : undefined,
       memo:
         typeof memo === "string" && memo.trim() !== "" ? memo.trim() : undefined,
+      // 발송등록은 항상 유선주문 (클라이언트 값 무시)
+      order_channel: WIRED_ORDER_CHANNEL,
+      order_product: (orderProductRaw as string).trim(),
       aligo_template_type:
         typeof templateTypeRaw === "string"
           ? (templateTypeRaw as AligoTemplateType)

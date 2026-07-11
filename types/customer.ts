@@ -10,6 +10,10 @@ export interface CustomerListItem {
   grade?: VipLevel;
   is_favorite?: boolean;
   favorite_at?: string | null;
+  /** 관리자 메모 (선택) */
+  memo?: string | null;
+  order_channel?: string | null;
+  order_product?: string | null;
 }
 
 export type CustomerListItemWithVip = CustomerListItem &

@@ -3,45 +3,25 @@
 import { useEffect, useMemo, useState } from "react";
 import { OrderAttributeFields } from "@/components/orders/order-attribute-fields";
 import {
-  NAVER_ORDER_CHANNEL_PRESETS,
+  ORDER_CHANNEL_PRESETS,
   ORDER_PRODUCT_PRESETS,
   resolveAttributeValue,
+  selectionFromStoredValue,
   type OrderAttributeSelection,
 } from "@/lib/constants/order-attributes";
-import {
-  loadLastOrderAttributes,
-  saveLastOrderAttributes,
-} from "@/lib/utils/last-order-attributes";
+import type { CustomerListItemWithVip } from "@/types/customer";
 
-const NAVER_CHANNEL_DEFAULT: OrderAttributeSelection = {
-  preset: NAVER_ORDER_CHANNEL_PRESETS[0],
-  other: "",
-};
-
-export type CustomerGrade = "normal" | "silver" | "gold";
-
-export interface CreatedCustomer {
-  id: string;
-  name: string;
-  phone: string;
-  created_at: string;
-  is_favorite?: boolean;
-  favorite_at?: string | null;
-  memo?: string | null;
-  order_channel?: string | null;
-  order_product?: string | null;
-}
-
-interface CustomerCreateModalProps {
+interface CustomerEditModalProps {
   open: boolean;
+  customer: CustomerListItemWithVip | null;
   onClose: () => void;
-  onCreated: (customer: CreatedCustomer & { grade?: CustomerGrade }) => void;
+  onUpdated: (customer: CustomerListItemWithVip) => void;
 }
 
-interface CreateCustomerApiResponse {
+interface UpdateCustomerApiResponse {
   success: boolean;
   message?: string;
-  data?: (CreatedCustomer & { grade?: CustomerGrade }) | null;
+  data?: CustomerListItemWithVip | null;
   errors?: { field: string; message: string }[];
 }
 
@@ -50,17 +30,19 @@ const MAX_MEMO_LENGTH = 500;
 const inputClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10";
 
-export function CustomerCreateModal({
+export function CustomerEditModal({
   open,
+  customer,
   onClose,
-  onCreated,
-}: CustomerCreateModalProps) {
+  onUpdated,
+}: CustomerEditModalProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [grade, setGrade] = useState<CustomerGrade>("normal");
   const [memo, setMemo] = useState("");
-  const [channel, setChannel] =
-    useState<OrderAttributeSelection>(NAVER_CHANNEL_DEFAULT);
+  const [channel, setChannel] = useState<OrderAttributeSelection>({
+    preset: ORDER_CHANNEL_PRESETS[0],
+    other: "",
+  });
   const [product, setProduct] = useState<OrderAttributeSelection>({
     preset: ORDER_PRODUCT_PRESETS[0],
     other: "",
@@ -78,30 +60,24 @@ export function CustomerCreateModal({
   };
 
   useEffect(() => {
-    if (!open) return;
-    const last = loadLastOrderAttributes();
+    if (!open || !customer) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setName("");
+    setName(customer.name ?? "");
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPhone("");
+    setPhone(customer.phone ?? "");
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setGrade("normal");
+    setMemo(customer.memo ?? "");
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMemo("");
-    // 네이버 주문: 전화 제외. 직전 선택이 허용 프리셋/기타가 아니면 네이버 기본
-    const allowedChannel =
-      last.channel.preset === "기타" ||
-      (NAVER_ORDER_CHANNEL_PRESETS as readonly string[]).includes(
-        last.channel.preset
-      );
-    const lastChannel = allowedChannel ? last.channel : NAVER_CHANNEL_DEFAULT;
+    setChannel(
+      selectionFromStoredValue(customer.order_channel, ORDER_CHANNEL_PRESETS)
+    );
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setChannel(lastChannel);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setProduct(last.product);
+    setProduct(
+      selectionFromStoredValue(customer.order_product, ORDER_PRODUCT_PRESETS)
+    );
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setError(null);
-  }, [open]);
+  }, [open, customer]);
 
   useEffect(() => {
     if (!open) return;
@@ -117,12 +93,12 @@ export function CustomerCreateModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading || !canSubmit) return;
+    if (!canSubmit || !customer) return;
 
     const orderChannel = resolveAttributeValue(
       channel.preset,
       channel.other,
-      NAVER_ORDER_CHANNEL_PRESETS
+      ORDER_CHANNEL_PRESETS
     );
     const orderProduct = resolveAttributeValue(
       product.preset,
@@ -147,38 +123,35 @@ export function CustomerCreateModal({
     setError(null);
 
     try {
-      const res = await fetch("/api/customers", {
-        method: "POST",
+      const res = await fetch(`/api/customers/${customer.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "order",
           name: name.trim(),
           phone: phone.trim(),
-          grade,
           memo: memo.trim() === "" ? null : memo,
           order_channel: orderChannel,
           order_product: orderProduct,
         }),
       });
 
-      const json: CreateCustomerApiResponse = await res.json();
+      const json: UpdateCustomerApiResponse = await res.json();
       if (!res.ok || !json.success || !json.data) {
-        throw new Error(json.message || "네이버 주문 저장에 실패했습니다.");
+        throw new Error(json.message || "고객 정보 수정에 실패했습니다.");
       }
 
-      saveLastOrderAttributes({ channel, product });
-      onCreated(json.data);
+      onUpdated(json.data);
       handleClose();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "네이버 주문 저장에 실패했습니다."
+        err instanceof Error ? err.message : "고객 정보 수정에 실패했습니다."
       );
     } finally {
       setLoading(false);
     }
   };
 
-  if (!open) return null;
+  if (!open || !customer) return null;
 
   return (
     <div
@@ -195,20 +168,22 @@ export function CustomerCreateModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="customer-create-title"
+        aria-labelledby="customer-edit-title"
         className="relative z-10 flex max-h-[min(90vh,40rem)] w-full max-w-md flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl"
       >
         <div className="shrink-0 border-b border-zinc-100 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <h2
-                id="customer-create-title"
+                id="customer-edit-title"
                 className="text-sm font-semibold text-zinc-900"
               >
-                네이버 주문
+                고객 정보 수정
               </h2>
               <p className="mt-0.5 text-xs text-zinc-500">
-                네이버 주문을 저장하면 고객 정보와 주문 통계에 반영됩니다.
+                고객명·연락처·주문채널·주문상품·메모를 수정할 수 있습니다.
+                주문정보가 비어 있던 고객에 처음 입력할 때만 통계 1건이
+                반영됩니다.
               </p>
             </div>
             <button
@@ -253,37 +228,25 @@ export function CustomerCreateModal({
           <OrderAttributeFields
             channel={channel}
             product={product}
-            channelPresets={NAVER_ORDER_CHANNEL_PRESETS}
             disabled={loading}
             onChannelChange={setChannel}
             onProductChange={setProduct}
           />
 
           <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-zinc-500">고객등급</span>
-            <select
-              value={grade}
-              onChange={(e) => setGrade(e.target.value as CustomerGrade)}
-              className={inputClass}
-              disabled={loading}
-            >
-              <option value="normal">일반</option>
-              <option value="silver">Silver VIP</option>
-              <option value="gold">Gold VIP</option>
-            </select>
-          </label>
-
-          <label className="block space-y-1.5">
             <span className="text-xs font-medium text-zinc-500">관리자 메모</span>
             <textarea
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
-              rows={4}
+              rows={5}
               maxLength={MAX_MEMO_LENGTH}
               placeholder={"VIP 고객\n문어만 주문\n배송 전 전화"}
               className={`${inputClass} resize-y`}
               disabled={loading}
             />
+            <span className="block text-right text-xs text-zinc-400">
+              {memo.length}/{MAX_MEMO_LENGTH}
+            </span>
           </label>
 
           {error && (

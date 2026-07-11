@@ -11,7 +11,7 @@ import { escapeIlike, normalizePhone } from "@/lib/validations/order";
 type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
 const CUSTOMER_LIST_COLUMNS_BASE =
-  "id, name, phone, created_at, grade, is_favorite, favorite_at";
+  "id, name, phone, created_at, grade, is_favorite, favorite_at, memo, order_channel, order_product";
 const CUSTOMER_LIST_COLUMNS_WITH_VIP = `${CUSTOMER_LIST_COLUMNS_BASE}, order_count, vip_level`;
 
 type OrdersPhoneOnlyRow = {
@@ -63,9 +63,40 @@ async function resolvePhonesWithOrdersInRange(
   return phones;
 }
 
+/** 기간 내 발송 고객 + 기간 내 직접 등록 고객 전화번호 */
+async function resolveCustomerPhonesInRange(
+  supabase: ServerSupabaseClient,
+  startDate: string,
+  endDate: string
+): Promise<Set<string>> {
+  const phones = await resolvePhonesWithOrdersInRange(
+    supabase,
+    startDate,
+    endDate
+  );
+  const { startIso, endIso } = toKstRangeIso(startDate, endDate);
+
+  const { data: registeredRows, error } = await supabase
+    .from("customers")
+    .select("phone")
+    .gte("created_at", startIso)
+    .lte("created_at", endIso);
+
+  if (error) throw error;
+  for (const row of (registeredRows ?? []) as unknown as OrdersPhoneOnlyRow[]) {
+    const phone = String(row.phone ?? "");
+    if (phone) phones.add(phone);
+  }
+
+  return phones;
+}
+
 export interface UpsertCustomerPayload {
   name: string;
   phone: string;
+  memo?: string | null;
+  order_channel?: string | null;
+  order_product?: string | null;
 }
 
 function enrichCustomersFromCache(
@@ -84,7 +115,7 @@ function enrichCustomersFromCache(
 }
 
 /**
- * phone 기준 upsert — 동일 번호면 name만 최신값으로 갱신
+ * phone 기준 upsert — 동일 번호면 최신 고객 정보로 갱신
  */
 export async function upsertCustomerByPhone(
   supabase: ServerSupabaseClient,
@@ -93,7 +124,9 @@ export async function upsertCustomerByPhone(
   const { data, error } = await supabase
     .from("customers")
     .upsert(payload as never, { onConflict: "phone" })
-    .select("id, name, phone, created_at")
+    .select(
+      "id, name, phone, created_at, memo, order_channel, order_product"
+    )
     .single();
 
   return {
@@ -115,7 +148,7 @@ export async function listCustomers(
     .select(CUSTOMER_LIST_COLUMNS_WITH_VIP, { count: "exact" });
 
   if (startDate && endDate) {
-    const phonesInRange = await resolvePhonesWithOrdersInRange(
+    const phonesInRange = await resolveCustomerPhonesInRange(
       supabase,
       startDate,
       endDate
@@ -141,7 +174,9 @@ export async function listCustomers(
   if (search) {
     const escaped = escapeIlike(search);
     const normalizedPhone = normalizePhone(search);
-    query = query.or(`name.ilike.%${escaped}%,phone.ilike.%${normalizedPhone}%`);
+    query = query.or(
+      `name.ilike.%${escaped}%,phone.ilike.%${normalizedPhone}%,memo.ilike.%${escaped}%`
+    );
   }
 
   if (vip === "favorite") {
@@ -155,6 +190,65 @@ export async function listCustomers(
   query = query.range(from, to);
 
   let { data, error, count } = await query;
+
+  // order_channel/order_product 미적용 시: 해당 컬럼만 제외하고 재조회 (memo 등 유지)
+  if (
+    error?.code === "42703" &&
+    /order_channel|order_product/i.test(error.message ?? "")
+  ) {
+    const withoutAttrs =
+      "id, name, phone, created_at, grade, is_favorite, favorite_at, memo, order_count, vip_level";
+    let retry = supabase
+      .from("customers")
+      .select(withoutAttrs, { count: "exact" });
+
+    if (startDate && endDate) {
+      const phonesInRange = await resolveCustomerPhonesInRange(
+        supabase,
+        startDate,
+        endDate
+      );
+      if (phonesInRange.size === 0) {
+        return {
+          data: [],
+          pagination: { page, limit, totalCount: 0, totalPages: 0 },
+          error: null,
+        };
+      }
+      retry = retry.in("phone", Array.from(phonesInRange));
+    }
+
+    if (vip === "favorite") {
+      retry = retry.eq("is_favorite", true);
+    } else if (vip === "silver") {
+      retry = retry
+        .gte("order_count", VIP_SILVER_MIN)
+        .lt("order_count", VIP_GOLD_MIN);
+    } else if (vip === "gold") {
+      retry = retry.gte("order_count", VIP_GOLD_MIN);
+    }
+
+    if (search) {
+      const escaped = escapeIlike(search);
+      const normalizedPhone = normalizePhone(search);
+      retry = retry.or(
+        `name.ilike.%${escaped}%,phone.ilike.%${normalizedPhone}%,memo.ilike.%${escaped}%`
+      );
+    }
+
+    if (vip === "favorite") {
+      retry = retry.order("name", { ascending: true });
+    } else {
+      retry = retry
+        .order("order_count", { ascending: false })
+        .order("created_at", { ascending: false });
+    }
+
+    const retryResult = await retry.range(from, to);
+    data = retryResult.data;
+    error = retryResult.error;
+    count = retryResult.count;
+  }
 
   if (error?.code === "42703") {
     let legacyQuery = supabase
@@ -183,7 +277,7 @@ export async function listCustomers(
 
     if (startDate && endDate) {
       try {
-        const phonesInRange = await resolvePhonesWithOrdersInRange(
+        const phonesInRange = await resolveCustomerPhonesInRange(
           supabase,
           startDate,
           endDate
@@ -239,6 +333,82 @@ export async function listCustomers(
       totalPages,
     },
     error: error as { message: string; code?: string } | null,
+  };
+}
+
+export async function deleteCustomersByIds(
+  supabase: ServerSupabaseClient,
+  ids: string[]
+) {
+  if (ids.length === 0) {
+    return { deletedCount: 0, error: null };
+  }
+
+  const { data, error } = await supabase
+    .from("customers")
+    .delete()
+    .in("id", ids)
+    .select("id");
+
+  return {
+    deletedCount: (data ?? []).length,
+    error: error as { message: string; code?: string } | null,
+  };
+}
+
+export async function updateCustomerById(
+  supabase: ServerSupabaseClient,
+  customerId: string,
+  payload: {
+    name: string;
+    phone: string;
+    memo: string | null;
+    order_channel: string | null;
+    order_product: string | null;
+  }
+) {
+  const { data, error } = await supabase
+    .from("customers")
+    .update({
+      name: payload.name,
+      phone: payload.phone,
+      memo: payload.memo,
+      order_channel: payload.order_channel,
+      order_product: payload.order_product,
+    } as never)
+    .eq("id", customerId)
+    .select(CUSTOMER_LIST_COLUMNS_WITH_VIP)
+    .single();
+
+  const schemaMissing =
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    /order_channel|order_product/i.test(error?.message ?? "");
+
+  if (schemaMissing) {
+    return {
+      data: null,
+      error: {
+        message:
+          "DB에 order_channel/order_product 컬럼이 없습니다. supabase/migrations/016_add_order_attributes_and_statistics.sql 을 Supabase SQL Editor에서 실행해주세요.",
+        code: error?.code ?? "SCHEMA_MISSING",
+      },
+    };
+  }
+
+  if (error || !data) {
+    return {
+      data: null,
+      error: error as { message: string; code?: string } | null,
+    };
+  }
+
+  const row = data as CustomerListItem & { order_count?: number };
+  const [enriched] = enrichCustomersFromCache([row]);
+
+  return {
+    data: enriched,
+    error: null,
   };
 }
 

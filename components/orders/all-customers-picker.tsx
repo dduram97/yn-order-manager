@@ -19,7 +19,10 @@ interface AllCustomersApiResponse {
 interface AllCustomersPickerProps {
   templateType: AligoTemplateType;
   disabled?: boolean;
-  onSelect: (updates: Partial<TemplateFieldValues>) => void;
+  onSelect: (
+    updates: Partial<TemplateFieldValues>,
+    meta?: { memo?: string | null }
+  ) => void;
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -93,7 +96,9 @@ export function AllCustomersPicker({
   };
 
   const handlePick = (customer: CustomerListItemWithVip) => {
-    onSelect(buildFieldUpdates(templateType, customer));
+    onSelect(buildFieldUpdates(templateType, customer), {
+      memo: customer.memo ?? null,
+    });
     handleClose();
   };
 
@@ -182,7 +187,7 @@ export function AllCustomersPicker({
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="이름 또는 전화번호 검색"
+                placeholder="이름, 전화번호 또는 메모 검색"
                 autoFocus
                 className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10"
               />
@@ -227,6 +232,11 @@ export function AllCustomersPicker({
                           <span className="mt-0.5 block text-sm text-zinc-500">
                             {formatPhone(customer.phone)}
                           </span>
+                          {customer.memo?.trim() ? (
+                            <span className="mt-1 block line-clamp-2 whitespace-pre-wrap break-words text-xs text-zinc-400">
+                              {customer.memo}
+                            </span>
+                          ) : null}
                         </span>
                         <span className="shrink-0 text-xs font-medium text-zinc-600">
                           선택

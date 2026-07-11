@@ -4,11 +4,13 @@ import {
   ALIGO_FAIL_REASON_LABEL,
   DEFAULT_ALIGO_TEMPLATE_TYPE,
 } from "@/lib/constants/aligo";
+import { WIRED_ORDER_CHANNEL } from "@/lib/constants/order-attributes";
 import { executeOrderAligoSend } from "@/lib/aligo/order-send-outcome";
 import { upsertCustomerByPhone } from "@/lib/supabase/customers";
 import { createClient } from "@/lib/supabase/server";
 import { syncCustomerVipByPhone } from "@/lib/supabase/vip";
-import { insertOrder } from "@/lib/supabase/orders";
+import { deleteOrdersByIds, insertOrder } from "@/lib/supabase/orders";
+import { insertCustomerOrderStatistic } from "@/lib/supabase/customer-order-stats";
 import { listShipmentOrders } from "@/lib/services/order.service";
 import type { OrderAligoSendResult } from "@/lib/services/order.service";
 import {
@@ -143,8 +145,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const { customer_name, phone, tracking_number, tracking_numbers, memo, sender_name, receiver_name } =
+    const { customer_name, phone, tracking_number, tracking_numbers, memo, sender_name, receiver_name, order_product } =
       validation.data;
+    const order_channel = WIRED_ORDER_CHANNEL;
     const templateType =
       validation.data.aligo_template_type ?? DEFAULT_ALIGO_TEMPLATE_TYPE;
     const sent_date = getTodayDateString();
@@ -162,15 +165,24 @@ export async function POST(request: Request) {
       tracking_count: numbers.length,
       tracking_numbers: numbers,
       memo: memo ?? "(없음)",
+      order_channel,
+      order_product,
       sent_date,
       aligo_status: "pending",
     });
 
     const supabase = await createClient();
 
+    // 신규/기존 무관 — 항상 최신 고객 정보로 upsert
     const { data: customer, error: customerError } = await upsertCustomerByPhone(
       supabase,
-      { name: customer_name, phone }
+      {
+        name: customer_name,
+        phone,
+        memo: memo ?? null,
+        order_channel,
+        order_product,
+      }
     );
 
     if (customerError) {
@@ -182,6 +194,17 @@ export async function POST(request: Request) {
       console.log(
         `[POST /api/orders] customers upsert 성공 (id: ${customer.id}, phone: ${customer.phone})`
       );
+    }
+
+    // upsert 실패 시에도 기존 고객 id를 조회해 통계에 연결
+    let customerId = customer?.id ?? null;
+    if (!customerId) {
+      const { data: existingCustomer } = await supabase
+        .from("customers")
+        .select("id")
+        .eq("phone", phone)
+        .maybeSingle();
+      customerId = (existingCustomer as { id?: string } | null)?.id ?? null;
     }
 
     const results: OrderAligoSendResult[] = [];
@@ -262,6 +285,28 @@ export async function POST(request: Request) {
       `[POST /api/orders] ✅ 주문 등록 성공 (${numbers.length}건, ${elapsed}ms)`
     );
 
+    // 발송등록 완료마다 통계 1건 (기존 고객 재구매 포함) — 채널 고정: 유선주문
+    if (customerId && firstOrderData?.id) {
+      const { error: statError } = await insertCustomerOrderStatistic({
+        customer_id: customerId,
+        order_channel: WIRED_ORDER_CHANNEL,
+        order_product,
+        source: "order_registration",
+        source_ref: firstOrderData.id,
+      });
+      if (statError) {
+        console.error(
+          "[POST /api/orders] ⚠️ 통계 저장 실패:",
+          statError.message
+        );
+      }
+    } else {
+      console.error(
+        "[POST /api/orders] ⚠️ 통계 저장 생략: customerId 또는 orderId 없음",
+        { customerId, orderId: firstOrderData?.id ?? null }
+      );
+    }
+
     const { order_count, vip_level, error: vipSyncError } =
       await syncCustomerVipByPhone(supabase, phone);
 
@@ -325,6 +370,97 @@ export async function POST(request: Request) {
         message: "서버 오류가 발생했습니다.",
         error: message,
         elapsedMs: elapsed,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+function parseDeleteOrderIds(body: unknown): {
+  success: true;
+  ids: string[];
+} | {
+  success: false;
+  message: string;
+} {
+  if (!body || typeof body !== "object") {
+    return { success: false, message: "요청 본문이 올바르지 않습니다." };
+  }
+
+  const { ids } = body as { ids?: unknown };
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return { success: false, message: "삭제할 항목을 선택해주세요." };
+  }
+
+  const cleaned = ids
+    .filter((id): id is string => typeof id === "string")
+    .map((id) => id.trim())
+    .filter(Boolean);
+
+  if (cleaned.length === 0) {
+    return { success: false, message: "삭제할 항목을 선택해주세요." };
+  }
+
+  return { success: true, ids: Array.from(new Set(cleaned)) };
+}
+
+/**
+ * DELETE - 선택 발송(주문) 삭제
+ * body: { ids: string[] }
+ */
+export async function DELETE(request: Request) {
+  const auth = await requireAuth();
+  if (auth.error) return auth.error;
+
+  const startedAt = Date.now();
+
+  try {
+    const body = (await request.json()) as unknown;
+    const parsed = parseDeleteOrderIds(body);
+
+    if (!parsed.success) {
+      return NextResponse.json(
+        { success: false, message: parsed.message },
+        { status: 400 }
+      );
+    }
+
+    const supabase = await createClient();
+    const { deletedCount, error } = await deleteOrdersByIds(
+      supabase,
+      parsed.ids
+    );
+    const elapsed = Date.now() - startedAt;
+
+    if (error) {
+      console.error("[DELETE /api/orders] ❌ Supabase 오류:", error.message);
+      return NextResponse.json(
+        {
+          success: false,
+          message: "발송 내역 삭제 중 오류가 발생했습니다.",
+          error: error.message,
+          code: error.code ?? null,
+          elapsedMs: elapsed,
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      deletedCount,
+      elapsedMs: elapsed,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[DELETE /api/orders] ❌ 예외:", message);
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: "서버 오류가 발생했습니다.",
+        error: message,
+        elapsedMs: Date.now() - startedAt,
       },
       { status: 500 }
     );

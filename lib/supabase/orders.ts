@@ -342,3 +342,23 @@ export async function listOrders(
     error: error as { message: string; code?: string } | null,
   };
 }
+
+export async function deleteOrdersByIds(
+  supabase: ServerSupabaseClient,
+  ids: string[]
+) {
+  if (ids.length === 0) {
+    return { deletedCount: 0, error: null };
+  }
+
+  const { data, error } = await supabase
+    .from("orders")
+    .delete()
+    .in("id", ids)
+    .select("id");
+
+  return {
+    deletedCount: (data ?? []).length,
+    error: error as { message: string; code?: string } | null,
+  };
+}

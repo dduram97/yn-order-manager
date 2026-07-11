@@ -11,6 +11,8 @@ export interface CreateOrderInput {
   receiver_name?: string;
   memo?: string;
   aligo_template_type?: AligoTemplateType;
+  order_channel: string;
+  order_product: string;
 }
 
 export interface UpdateOrderInput {
