@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { requireAuth } from "@/lib/auth/require-auth";
 import {
-  correctNaverOrderStatistic,
-  findEditableNaverOrderStatistic,
-  insertCustomerOrderStatistic,
-  isWithinNaverOrderAttrEditWindow,
   NAVER_ORDER_ATTR_EDIT_LOCKED_CODE,
   NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE,
+} from "@/lib/constants/customer-edit";
+import {
+  correctNaverOrderStatistic,
+  findEditableNaverOrderStatistic,
+  isWithinNaverOrderAttrEditWindow,
+  resolveCustomerEditKind,
 } from "@/lib/supabase/customer-order-stats";
 import { updateCustomerById } from "@/lib/supabase/customers";
 import { createClient } from "@/lib/supabase/server";
@@ -17,10 +19,10 @@ import { validateOrderId } from "@/lib/validations/order";
  * PATCH /api/customers/[id]
  * body: { name, phone, memo?, order_channel?, order_product? }
  *
- * 통계:
- * - NULL → 최초 주문정보 입력: +1 (보정)
- * - 네이버 주문(customer_add, backfill 제외) 채널/상품 변경: 해당 통계 1건 정정
- * - 이름/전화/메모만 변경, 유선(order_registration·backfill) 관련: 통계 변경 없음
+ * - 고객명/전화/메모: 항상 저장 가능
+ * - 주문채널/상품: 네이버(customer_add)만 24시간 이내 정정. 초과 시 주문정보만 유지·잠금 안내
+ * - CRM: 주문정보·통계 변경 없음
+ * - 유선(발송등록·backfill): 고객정보 수정 가능, 통계 정정 없음
  */
 export async function PATCH(
   request: Request,
@@ -100,26 +102,60 @@ export async function PATCH(
       );
     }
 
-    const prevChannel = String(
-      (beforeRow as { order_channel?: string | null }).order_channel ?? ""
-    ).trim();
-    const prevProduct = String(
-      (beforeRow as { order_product?: string | null }).order_product ?? ""
-    ).trim();
-    const wasOrderInfoEmpty = prevChannel === "" && prevProduct === "";
+    const prevChannelRaw = (beforeRow as { order_channel?: string | null })
+      .order_channel;
+    const prevProductRaw = (beforeRow as { order_product?: string | null })
+      .order_product;
+    const prevChannel = String(prevChannelRaw ?? "").trim();
+    const prevProduct = String(prevProductRaw ?? "").trim();
+
+    const editKind = await resolveCustomerEditKind({
+      customer_id: customerId,
+      order_channel: prevChannelRaw,
+      order_product: prevProductRaw,
+    });
+
+    if (editKind.error) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "고객 유형 조회 중 오류가 발생했습니다.",
+          error: editKind.error.message,
+          elapsedMs: Date.now() - startedAt,
+        },
+        { status: 500 }
+      );
+    }
+
+    const isCrm = editKind.kind === "crm";
     const nextChannel = validation.data.order_channel?.trim() ?? "";
     const nextProduct = validation.data.order_product?.trim() ?? "";
     const nowOrderInfoFilled = nextChannel !== "" && nextProduct !== "";
     const orderAttrsChanged =
-      prevChannel !== nextChannel || prevProduct !== nextProduct;
-    const shouldCreateStat = wasOrderInfoEmpty && nowOrderInfoFilled;
-    const shouldCorrectNaverStat =
-      !wasOrderInfoEmpty &&
-      nowOrderInfoFilled &&
-      orderAttrsChanged;
+      !isCrm &&
+      (prevChannel !== nextChannel || prevProduct !== nextProduct);
 
-    // 네이버 주문 채널/상품 변경: 24시간 초과면 고객 정보도 저장하지 않음
-    if (shouldCorrectNaverStat) {
+    let orderAttrLocked = false;
+    let updatePayload = {
+      name: validation.data.name,
+      phone: validation.data.phone,
+      memo: validation.data.memo,
+      order_channel: isCrm
+        ? prevChannelRaw ?? null
+        : validation.data.order_channel,
+      order_product: isCrm
+        ? prevProductRaw ?? null
+        : validation.data.order_product,
+    };
+
+    // 네이버 주문 채널/상품 변경: 24시간 초과면 주문정보만 유지하고 고객정보는 저장
+    if (
+      !isCrm &&
+      orderAttrsChanged &&
+      nowOrderInfoFilled &&
+      prevChannel !== "" &&
+      prevProduct !== ""
+    ) {
       const found = await findEditableNaverOrderStatistic({
         customer_id: customerId,
         channel: prevChannel,
@@ -142,22 +178,19 @@ export async function PATCH(
         found.data &&
         !isWithinNaverOrderAttrEditWindow(found.data.created_at)
       ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE,
-            code: NAVER_ORDER_ATTR_EDIT_LOCKED_CODE,
-            elapsedMs: Date.now() - startedAt,
-          },
-          { status: 403 }
-        );
+        orderAttrLocked = true;
+        updatePayload = {
+          ...updatePayload,
+          order_channel: prevChannelRaw ?? null,
+          order_product: prevProductRaw ?? null,
+        };
       }
     }
 
     const { data, error } = await updateCustomerById(
       supabase,
       customerId,
-      validation.data
+      updatePayload
     );
     const elapsed = Date.now() - startedAt;
 
@@ -194,27 +227,17 @@ export async function PATCH(
       );
     }
 
-    let statsCreated = false;
     let statsCorrected = false;
 
-    if (shouldCreateStat) {
-      const { error: statError } = await insertCustomerOrderStatistic({
-        customer_id: customerId,
-        order_channel: nextChannel,
-        order_product: nextProduct,
-        source: "customer_add",
-        source_ref: `customer_edit:${customerId}`,
-      });
-
-      if (statError) {
-        console.error(
-          "[PATCH /api/customers/:id] ⚠️ 통계 저장 실패:",
-          statError.message
-        );
-      } else {
-        statsCreated = true;
-      }
-    } else if (shouldCorrectNaverStat) {
+    // CRM·잠금·유선: 통계 생성/정정 없음. 네이버 24시간 이내 채널·상품 변경만 정정
+    if (
+      !isCrm &&
+      !orderAttrLocked &&
+      orderAttrsChanged &&
+      nowOrderInfoFilled &&
+      prevChannel !== "" &&
+      prevProduct !== ""
+    ) {
       const { error: correctError, updated, locked } =
         await correctNaverOrderStatistic({
           customer_id: customerId,
@@ -230,16 +253,7 @@ export async function PATCH(
           correctError.message
         );
       } else if (locked) {
-        // 사전 검사에서 막혀야 하지만 방어적으로 처리
-        return NextResponse.json(
-          {
-            success: false,
-            message: NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE,
-            code: NAVER_ORDER_ATTR_EDIT_LOCKED_CODE,
-            elapsedMs: Date.now() - startedAt,
-          },
-          { status: 403 }
-        );
+        orderAttrLocked = true;
       } else {
         statsCorrected = updated === true;
       }
@@ -248,8 +262,14 @@ export async function PATCH(
     return NextResponse.json({
       success: true,
       data,
-      statsCreated,
       statsCorrected,
+      orderAttrLocked,
+      ...(orderAttrLocked
+        ? {
+            code: NAVER_ORDER_ATTR_EDIT_LOCKED_CODE,
+            message: NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE,
+          }
+        : {}),
       elapsedMs: Date.now() - startedAt,
     });
   } catch (err) {

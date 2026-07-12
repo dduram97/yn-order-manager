@@ -1,9 +1,20 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import type { CustomerEditKind } from "@/lib/constants/customer-edit";
+import {
+  NAVER_ORDER_ATTR_EDIT_LOCKED_CODE,
+  NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE,
+} from "@/lib/constants/customer-edit";
 import type { OrderStatSource } from "@/lib/constants/order-attributes";
 import {
   normalizeChannelForDisplay,
   WIRED_ORDER_CHANNEL,
 } from "@/lib/constants/order-attributes";
+
+export type { CustomerEditKind };
+export {
+  NAVER_ORDER_ATTR_EDIT_LOCKED_CODE,
+  NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE,
+};
 
 export interface CustomerOrderStatisticRow {
   id: string;
@@ -86,11 +97,6 @@ export function isEditableNaverOrderStatistic(source: string, sourceRef: string)
 /** 네이버 주문 채널/상품 오입력 정정 허용 시간 (created_at 기준) */
 export const NAVER_ORDER_ATTR_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-export const NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE =
-  "주문 등록 후 24시간이 지난 주문입니다.\n통계 데이터 보호를 위해 주문채널/주문상품 수정이 제한됩니다.";
-
-export const NAVER_ORDER_ATTR_EDIT_LOCKED_CODE = "ORDER_ATTR_EDIT_LOCKED";
-
 export function isWithinNaverOrderAttrEditWindow(
   createdAt: string,
   now = new Date()
@@ -98,6 +104,75 @@ export function isWithinNaverOrderAttrEditWindow(
   const createdMs = new Date(createdAt).getTime();
   if (Number.isNaN(createdMs)) return false;
   return now.getTime() - createdMs <= NAVER_ORDER_ATTR_EDIT_WINDOW_MS;
+}
+
+/**
+ * 고객 수정 UI/저장 분기용 유형 분류 (추가 컬럼·마이그레이션 없음).
+ * - naver: 수정 가능한 customer_add 통계 존재
+ * - wired: 발송등록/유선 보정 통계 또는 채널=유선주문
+ * - crm: 통계 없고 주문채널·상품 없음
+ */
+export function classifyCustomerEditKind(input: {
+  order_channel: string | null | undefined;
+  order_product: string | null | undefined;
+  stats: Array<{ source: string; source_ref: string }>;
+}): CustomerEditKind {
+  const hasNaver = input.stats.some((row) =>
+    isEditableNaverOrderStatistic(row.source, row.source_ref)
+  );
+  if (hasNaver) return "naver";
+
+  const hasWired = input.stats.some((row) => {
+    if (row.source === "order_registration") return true;
+    return String(row.source_ref ?? "")
+      .trim()
+      .startsWith("backfill:");
+  });
+  const channel = String(input.order_channel ?? "").trim();
+  const product = String(input.order_product ?? "").trim();
+
+  if (hasWired || channel === WIRED_ORDER_CHANNEL) return "wired";
+  if (!channel && !product) return "crm";
+
+  // 채널/상품만 있고 통계가 없는 레거시 → 주문정보 표시(네이버와 동일 UI)
+  return "naver";
+}
+
+export async function resolveCustomerEditKind(payload: {
+  customer_id: string;
+  order_channel: string | null | undefined;
+  order_product: string | null | undefined;
+}): Promise<{
+  kind: CustomerEditKind;
+  showOrderAttributes: boolean;
+  error: { message: string; code?: string } | null;
+}> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("customer_order_statistics")
+    .select("source, source_ref")
+    .eq("customer_id", payload.customer_id)
+    .limit(100);
+
+  if (error) {
+    return {
+      kind: "crm",
+      showOrderAttributes: false,
+      error: error as { message: string; code?: string },
+    };
+  }
+
+  const kind = classifyCustomerEditKind({
+    order_channel: payload.order_channel,
+    order_product: payload.order_product,
+    stats: (data ?? []) as Array<{ source: string; source_ref: string }>,
+  });
+
+  return {
+    kind,
+    showOrderAttributes: kind !== "crm",
+    error: null,
+  };
 }
 
 export async function findEditableNaverOrderStatistic(payload: {

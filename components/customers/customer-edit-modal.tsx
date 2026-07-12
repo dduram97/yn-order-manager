@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { OrderAttributeFields } from "@/components/orders/order-attribute-fields";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
+  NAVER_ORDER_ATTR_EDIT_LOCKED_CODE,
+  NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE,
+  type CustomerEditKind,
+} from "@/lib/constants/customer-edit";
+import {
   ORDER_CHANNEL_PRESETS,
   ORDER_PRODUCT_PRESETS,
   resolveAttributeValue,
@@ -23,15 +28,21 @@ interface UpdateCustomerApiResponse {
   success: boolean;
   message?: string;
   code?: string | null;
+  orderAttrLocked?: boolean;
   data?: CustomerListItemWithVip | null;
   errors?: { field: string; message: string }[];
 }
 
-const MAX_MEMO_LENGTH = 500;
+interface EditContextApiResponse {
+  success: boolean;
+  message?: string;
+  data?: {
+    kind: CustomerEditKind;
+    showOrderAttributes: boolean;
+  };
+}
 
-const ORDER_ATTR_LOCKED_CODE = "ORDER_ATTR_EDIT_LOCKED";
-const ORDER_ATTR_LOCKED_MESSAGE =
-  "주문 등록 후 24시간이 지난 주문입니다.\n통계 데이터 보호를 위해 주문채널/주문상품 수정이 제한됩니다.";
+const MAX_MEMO_LENGTH = 500;
 
 const inputClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-900/10";
@@ -53,21 +64,17 @@ export function CustomerEditModal({
     preset: ORDER_PRODUCT_PRESETS[0],
     other: "",
   });
-  const [initialChannel, setInitialChannel] = useState<OrderAttributeSelection>({
-    preset: ORDER_CHANNEL_PRESETS[0],
-    other: "",
-  });
-  const [initialProduct, setInitialProduct] = useState<OrderAttributeSelection>({
-    preset: ORDER_PRODUCT_PRESETS[0],
-    other: "",
-  });
+  const [editKind, setEditKind] = useState<CustomerEditKind | null>(null);
+  const [showOrderAttributes, setShowOrderAttributes] = useState(true);
+  const [contextLoading, setContextLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lockDialogOpen, setLockDialogOpen] = useState(false);
+  const [pendingCloseAfterLock, setPendingCloseAfterLock] = useState(false);
 
   const canSubmit = useMemo(() => {
-    return name.trim() !== "" && phone.trim() !== "" && !loading;
-  }, [name, phone, loading]);
+    return name.trim() !== "" && phone.trim() !== "" && !loading && !contextLoading;
+  }, [name, phone, loading, contextLoading]);
 
   const handleClose = () => {
     if (loading) return;
@@ -95,13 +102,49 @@ export function CustomerEditModal({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setProduct(nextProduct);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setInitialChannel(nextChannel);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setInitialProduct(nextProduct);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setError(null);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLockDialogOpen(false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingCloseAfterLock(false);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEditKind(null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowOrderAttributes(true);
+  }, [open, customer]);
+
+  useEffect(() => {
+    if (!open || !customer) return;
+
+    let cancelled = false;
+    setContextLoading(true);
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/customers/${customer.id}/edit-context`);
+        const json: EditContextApiResponse = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !json.success || !json.data) {
+          // 실패 시 안전하게 주문정보 표시 (기존 동작)
+          setEditKind("naver");
+          setShowOrderAttributes(true);
+          return;
+        }
+        setEditKind(json.data.kind);
+        setShowOrderAttributes(json.data.showOrderAttributes);
+      } catch {
+        if (!cancelled) {
+          setEditKind("naver");
+          setShowOrderAttributes(true);
+        }
+      } finally {
+        if (!cancelled) setContextLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [open, customer]);
 
   useEffect(() => {
@@ -116,32 +159,54 @@ export function CustomerEditModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, loading]);
 
+  const description = useMemo(() => {
+    if (editKind === "crm") {
+      return "고객명·연락처·메모를 수정할 수 있습니다.";
+    }
+    if (editKind === "wired") {
+      return "고객명·연락처·주문채널·주문상품·메모를 수정할 수 있습니다.";
+    }
+    return "고객명·연락처·메모는 항상 수정 가능합니다. 주문채널·주문상품은 네이버 주문 등록 후 24시간 이내만 수정할 수 있습니다.";
+  }, [editKind]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit || !customer) return;
 
-    const orderChannel = resolveAttributeValue(
-      channel.preset,
-      channel.other,
-      ORDER_CHANNEL_PRESETS
-    );
-    const orderProduct = resolveAttributeValue(
-      product.preset,
-      product.other,
-      ORDER_PRODUCT_PRESETS
-    );
-
-    if (!orderChannel) {
-      setError("주문채널을 선택하거나 기타 내용을 입력해주세요.");
-      return;
-    }
-    if (!orderProduct) {
-      setError("주문상품을 선택하거나 기타 내용을 입력해주세요.");
-      return;
-    }
     if (memo.length > MAX_MEMO_LENGTH) {
       setError(`메모는 ${MAX_MEMO_LENGTH}자 이하여야 합니다.`);
       return;
+    }
+
+    const payload: Record<string, string | null> = {
+      name: name.trim(),
+      phone: phone.trim(),
+      memo: memo.trim() === "" ? null : memo,
+    };
+
+    if (showOrderAttributes) {
+      const orderChannel = resolveAttributeValue(
+        channel.preset,
+        channel.other,
+        ORDER_CHANNEL_PRESETS
+      );
+      const orderProduct = resolveAttributeValue(
+        product.preset,
+        product.other,
+        ORDER_PRODUCT_PRESETS
+      );
+
+      if (!orderChannel) {
+        setError("주문채널을 선택하거나 기타 내용을 입력해주세요.");
+        return;
+      }
+      if (!orderProduct) {
+        setError("주문상품을 선택하거나 기타 내용을 입력해주세요.");
+        return;
+      }
+
+      payload.order_channel = orderChannel;
+      payload.order_product = orderProduct;
     }
 
     setLoading(true);
@@ -151,27 +216,36 @@ export function CustomerEditModal({
       const res = await fetch(`/api/customers/${customer.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone: phone.trim(),
-          memo: memo.trim() === "" ? null : memo,
-          order_channel: orderChannel,
-          order_product: orderProduct,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json: UpdateCustomerApiResponse = await res.json();
       if (!res.ok || !json.success || !json.data) {
-        if (json.code === ORDER_ATTR_LOCKED_CODE || res.status === 403) {
-          setChannel(initialChannel);
-          setProduct(initialProduct);
-          setLockDialogOpen(true);
-          return;
-        }
         throw new Error(json.message || "고객 정보 수정에 실패했습니다.");
       }
 
-      onUpdated(json.data);
+      const saved = json.data;
+      onUpdated(saved);
+
+      if (json.orderAttrLocked || json.code === NAVER_ORDER_ATTR_EDIT_LOCKED_CODE) {
+        const lockedChannel = selectionFromStoredValue(
+          saved.order_channel,
+          ORDER_CHANNEL_PRESETS
+        );
+        const lockedProduct = selectionFromStoredValue(
+          saved.order_product,
+          ORDER_PRODUCT_PRESETS
+        );
+        setChannel(lockedChannel);
+        setProduct(lockedProduct);
+        setName(saved.name ?? "");
+        setPhone(saved.phone ?? "");
+        setMemo(saved.memo ?? "");
+        setPendingCloseAfterLock(true);
+        setLockDialogOpen(true);
+        return;
+      }
+
       handleClose();
     } catch (err) {
       setError(
@@ -212,11 +286,7 @@ export function CustomerEditModal({
                 >
                   고객 정보 수정
                 </h2>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  고객명·연락처·주문채널·주문상품·메모를 수정할 수 있습니다.
-                  네이버 주문의 채널/상품은 등록 후 24시간 이내만 통계 정정이
-                  가능합니다.
-                </p>
+                <p className="mt-0.5 text-xs text-zinc-500">{description}</p>
               </div>
               <button
                 type="button"
@@ -241,7 +311,7 @@ export function CustomerEditModal({
                 autoFocus
                 placeholder="고객명"
                 className={inputClass}
-                disabled={loading}
+                disabled={loading || contextLoading}
               />
             </label>
 
@@ -255,17 +325,19 @@ export function CustomerEditModal({
                 placeholder="010-1234-5678"
                 inputMode="tel"
                 className={inputClass}
-                disabled={loading}
+                disabled={loading || contextLoading}
               />
             </label>
 
-            <OrderAttributeFields
-              channel={channel}
-              product={product}
-              disabled={loading}
-              onChannelChange={setChannel}
-              onProductChange={setProduct}
-            />
+            {showOrderAttributes ? (
+              <OrderAttributeFields
+                channel={channel}
+                product={product}
+                disabled={loading || contextLoading}
+                onChannelChange={setChannel}
+                onProductChange={setProduct}
+              />
+            ) : null}
 
             <label className="block space-y-1.5">
               <span className="text-xs font-medium text-zinc-500">
@@ -278,7 +350,7 @@ export function CustomerEditModal({
                 maxLength={MAX_MEMO_LENGTH}
                 placeholder={"VIP 고객\n문어만 주문\n배송 전 전화"}
                 className={`${inputClass} resize-y`}
-                disabled={loading}
+                disabled={loading || contextLoading}
               />
               <span className="block text-right text-xs text-zinc-400">
                 {memo.length}/{MAX_MEMO_LENGTH}
@@ -315,11 +387,23 @@ export function CustomerEditModal({
       <ConfirmDialog
         open={lockDialogOpen}
         title="수정 제한"
-        message={ORDER_ATTR_LOCKED_MESSAGE}
+        message={NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE}
         confirmLabel="확인"
         showCancel={false}
-        onConfirm={() => setLockDialogOpen(false)}
-        onCancel={() => setLockDialogOpen(false)}
+        onConfirm={() => {
+          setLockDialogOpen(false);
+          if (pendingCloseAfterLock) {
+            setPendingCloseAfterLock(false);
+            onClose();
+          }
+        }}
+        onCancel={() => {
+          setLockDialogOpen(false);
+          if (pendingCloseAfterLock) {
+            setPendingCloseAfterLock(false);
+            onClose();
+          }
+        }}
       />
     </>
   );
