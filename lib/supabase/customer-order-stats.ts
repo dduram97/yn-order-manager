@@ -75,6 +75,145 @@ export async function insertCustomerOrderStatistic(payload: {
   };
 }
 
+/** 네이버 주문(customer_add)만 수정 가능. 유선 보정(backfill) · 발송등록은 제외 */
+export function isEditableNaverOrderStatistic(source: string, sourceRef: string) {
+  if (source !== "customer_add") return false;
+  const ref = sourceRef.trim();
+  if (ref.startsWith("backfill:")) return false;
+  return true;
+}
+
+/** 네이버 주문 채널/상품 오입력 정정 허용 시간 (created_at 기준) */
+export const NAVER_ORDER_ATTR_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export const NAVER_ORDER_ATTR_EDIT_LOCKED_MESSAGE =
+  "주문 등록 후 24시간이 지난 주문입니다.\n통계 데이터 보호를 위해 주문채널/주문상품 수정이 제한됩니다.";
+
+export const NAVER_ORDER_ATTR_EDIT_LOCKED_CODE = "ORDER_ATTR_EDIT_LOCKED";
+
+export function isWithinNaverOrderAttrEditWindow(
+  createdAt: string,
+  now = new Date()
+): boolean {
+  const createdMs = new Date(createdAt).getTime();
+  if (Number.isNaN(createdMs)) return false;
+  return now.getTime() - createdMs <= NAVER_ORDER_ATTR_EDIT_WINDOW_MS;
+}
+
+export async function findEditableNaverOrderStatistic(payload: {
+  customer_id: string;
+  channel: string;
+  product: string;
+}) {
+  const supabase = createAdminClient();
+
+  const { data: rows, error } = await supabase
+    .from("customer_order_statistics")
+    .select(
+      "id, customer_id, order_channel, order_product, source, source_ref, created_at, year, month, day"
+    )
+    .eq("customer_id", payload.customer_id)
+    .eq("source", "customer_add")
+    .eq("order_channel", payload.channel)
+    .eq("order_product", payload.product)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    return {
+      data: null,
+      error: error as { message: string; code?: string },
+    };
+  }
+
+  const target =
+    ((rows ?? []) as CustomerOrderStatisticRow[]).find((row) =>
+      isEditableNaverOrderStatistic(row.source, row.source_ref)
+    ) ?? null;
+
+  return { data: target, error: null };
+}
+
+/**
+ * 네이버 주문 오입력 정정:
+ * 이전 채널/상품과 일치하는 customer_add 통계 1건(최신)을 새 값으로 갱신.
+ * order_registration / backfill 유선 보정은 건드리지 않음.
+ * created_at 기준 24시간 초과 시 locked.
+ */
+export async function correctNaverOrderStatistic(payload: {
+  customer_id: string;
+  prev_channel: string;
+  prev_product: string;
+  next_channel: string;
+  next_product: string;
+}) {
+  const found = await findEditableNaverOrderStatistic({
+    customer_id: payload.customer_id,
+    channel: payload.prev_channel,
+    product: payload.prev_product,
+  });
+
+  if (found.error) {
+    return {
+      data: null,
+      error: found.error,
+      updated: false as const,
+      locked: false as const,
+    };
+  }
+
+  const target = found.data;
+  if (!target) {
+    return {
+      data: null,
+      error: null,
+      updated: false as const,
+      locked: false as const,
+    };
+  }
+
+  if (!isWithinNaverOrderAttrEditWindow(target.created_at)) {
+    return {
+      data: target,
+      error: null,
+      updated: false as const,
+      locked: true as const,
+    };
+  }
+
+  if (
+    target.order_channel === payload.next_channel &&
+    target.order_product === payload.next_product
+  ) {
+    return {
+      data: target,
+      error: null,
+      updated: false as const,
+      locked: false as const,
+    };
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("customer_order_statistics")
+    .update({
+      order_channel: payload.next_channel,
+      order_product: payload.next_product,
+    } as never)
+    .eq("id", target.id)
+    .select(
+      "id, customer_id, order_channel, order_product, source, source_ref, created_at, year, month, day"
+    )
+    .single();
+
+  return {
+    data: data as CustomerOrderStatisticRow | null,
+    error: error as { message: string; code?: string } | null,
+    updated: !error,
+    locked: false as const,
+  };
+}
+
 export interface StatSlice {
   label: string;
   count: number;

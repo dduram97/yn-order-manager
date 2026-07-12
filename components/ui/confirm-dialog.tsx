@@ -6,6 +6,8 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** false면 확인 버튼만 표시 */
+  showCancel?: boolean;
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
@@ -17,6 +19,7 @@ export function ConfirmDialog({
   message,
   confirmLabel = "삭제",
   cancelLabel = "취소",
+  showCancel = true,
   loading = false,
   onConfirm,
   onCancel,
@@ -25,7 +28,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center"
+      className="fixed inset-0 z-[60] flex items-end justify-center p-4 sm:items-center"
       role="presentation"
     >
       <button
@@ -50,25 +53,27 @@ export function ConfirmDialog({
           >
             {title}
           </h2>
-          <p className="text-sm text-zinc-600">{message}</p>
+          <p className="whitespace-pre-line text-sm text-zinc-600">{message}</p>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-zinc-100 px-4 py-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={loading}
-            className="rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
-          >
-            {cancelLabel}
-          </button>
+          {showCancel ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={loading}
+              className="rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+            >
+              {cancelLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onConfirm}
             disabled={loading}
             className="rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:opacity-50"
           >
-            {loading ? "삭제 중..." : confirmLabel}
+            {loading ? "처리 중..." : confirmLabel}
           </button>
         </div>
       </div>
