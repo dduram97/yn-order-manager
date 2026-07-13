@@ -9,6 +9,7 @@ import {
   mapSmartTrackerToDeliveryStatus,
   mapTrackingHistory,
   normalizeTrackingNumber,
+  type SmartTrackerResponse,
 } from "@/lib/delivery/smart-tracker";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -39,6 +40,14 @@ export type CustomerTrackingResult =
   | { ok: true; data: CustomerTrackingData }
   | { ok: false; errorCode: "INVALID_INVOICE" | "NOT_FOUND" | "UNKNOWN"; message: string };
 
+type MatchedOrder = {
+  id: string;
+  customer_name: string;
+  tracking_number: string;
+  delivery_status?: DeliveryStatus | null;
+  delivery_location?: string | null;
+};
+
 function formatInvoiceDisplay(digits: string): string {
   if (digits.length === 12) {
     return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8, 12)}`;
@@ -47,10 +56,52 @@ function formatInvoiceDisplay(digits: string): string {
 }
 
 /**
+ * 고객이 배송조회를 시도한 시점을 기록.
+ * 스마트택배 성공/실패와 무관하게, 주문을 찾은 뒤에는 항상 남긴다.
+ */
+async function recordCustomerTrackingAttempt(input: {
+  order: MatchedOrder;
+  deliveryStatus: DeliveryStatus;
+  previousStatus: DeliveryStatus | null;
+  location: string | null;
+  trackingTime: string;
+  rawResponse?: SmartTrackerResponse | null;
+}) {
+  const eventType = resolveDeliveryTrackingEventType(
+    "customer_view",
+    input.deliveryStatus,
+    input.previousStatus
+  );
+
+  const { error: logError } = await insertDeliveryTrackingLog({
+    order_id: input.order.id,
+    tracking_number: input.order.tracking_number,
+    delivery_status: input.deliveryStatus,
+    event_type: eventType,
+    location: input.location,
+    tracking_time: input.trackingTime,
+    raw_response: input.rawResponse ?? null,
+  });
+
+  if (logError) {
+    console.error(
+      "[getCustomerTrackingByInvoice] delivery log 저장 실패:",
+      logError.message
+    );
+    return;
+  }
+
+  console.log("[getCustomerTrackingByInvoice] delivery log 저장", {
+    order_id: input.order.id,
+    event_type: eventType,
+    delivery_status: input.deliveryStatus,
+  });
+}
+
+/**
  * 송장번호 기준 고객용 배송조회
  * - 주문 DB에서 고객명 확인 후 스마트택배 API 조회
- * - 배송상태는 고객용 3단계(배송준비/배송중/배송완료)로 단순화
- * - 조회 성공 시 delivery_tracking_logs에 customer_view(또는 delivery_completed) 기록
+ * - 주문을 찾은 뒤에는 스마트택배 실패(유효하지 않은 송장 등)여도 customer_view 기록
  */
 export async function getCustomerTrackingByInvoice(
   invoiceNo: string
@@ -89,9 +140,55 @@ export async function getCustomerTrackingByInvoice(
       };
     }
 
-    const trackerData = await fetchSmartTrackerTracking(normalized);
+    const matchedOrder: MatchedOrder = {
+      id: order.id,
+      customer_name: order.customer_name,
+      tracking_number: order.tracking_number,
+      delivery_status: order.delivery_status as DeliveryStatus | null,
+      delivery_location: order.delivery_location,
+    };
 
+    const previousStatus =
+      (matchedOrder.delivery_status as DeliveryStatus | null) ?? null;
+    const nowIso = new Date().toISOString();
+
+    let trackerData: SmartTrackerResponse | null = null;
+    try {
+      trackerData = await fetchSmartTrackerTracking(normalized);
+    } catch (trackerError) {
+      const message =
+        trackerError instanceof Error
+          ? trackerError.message
+          : String(trackerError);
+
+      // 택배사 API 예외여도 조회 시도는 기록
+      await recordCustomerTrackingAttempt({
+        order: matchedOrder,
+        deliveryStatus: previousStatus ?? "ready",
+        previousStatus,
+        location: matchedOrder.delivery_location ?? null,
+        trackingTime: nowIso,
+        rawResponse: null,
+      });
+
+      return {
+        ok: false,
+        errorCode: "UNKNOWN",
+        message,
+      };
+    }
+
+    // 유효하지 않은 송장 등 — 조회 화면은 실패해도 시도 로그는 남김
     if (trackerData.status === false) {
+      await recordCustomerTrackingAttempt({
+        order: matchedOrder,
+        deliveryStatus: previousStatus ?? "ready",
+        previousStatus,
+        location: matchedOrder.delivery_location ?? null,
+        trackingTime: nowIso,
+        rawResponse: trackerData,
+      });
+
       return {
         ok: false,
         errorCode: "NOT_FOUND",
@@ -106,14 +203,11 @@ export async function getCustomerTrackingByInvoice(
     const lastHistory = rawHistory[rawHistory.length - 1];
     const trackingTime = lastHistory?.timeString
       ? new Date(lastHistory.timeString).toISOString()
-      : new Date().toISOString();
-
-    const previousStatus =
-      (order.delivery_status as DeliveryStatus | null) ?? null;
+      : nowIso;
 
     const { error: updateError } = await updateOrderDeliveryStatus(
       supabase,
-      order.id,
+      matchedOrder.id,
       {
         delivery_status: deliveryStatus,
         delivery_location: location === "-" ? null : location,
@@ -128,33 +222,19 @@ export async function getCustomerTrackingByInvoice(
       );
     }
 
-    const eventType = resolveDeliveryTrackingEventType(
-      "customer_view",
+    await recordCustomerTrackingAttempt({
+      order: matchedOrder,
       deliveryStatus,
-      previousStatus
-    );
-
-    const { error: logError } = await insertDeliveryTrackingLog({
-      order_id: order.id,
-      tracking_number: order.tracking_number,
-      delivery_status: deliveryStatus,
-      event_type: eventType,
+      previousStatus,
       location: location === "-" ? null : location,
-      tracking_time: trackingTime,
-      raw_response: trackerData,
+      trackingTime,
+      rawResponse: trackerData,
     });
-
-    if (logError) {
-      console.error(
-        "[getCustomerTrackingByInvoice] delivery log 저장 실패:",
-        logError.message
-      );
-    }
 
     return {
       ok: true,
       data: {
-        customerName: order.customer_name,
+        customerName: matchedOrder.customer_name,
         carrier: CJ_COURIER_NAME,
         invoiceNo: formatInvoiceDisplay(normalized),
         status: DELIVERY_STATUS_LABEL[deliveryStatus],

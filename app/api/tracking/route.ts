@@ -10,6 +10,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const invoiceNo = searchParams.get("invoiceNo") ?? "";
 
+  console.log("[GET /api/tracking] request", {
+    invoiceNo: invoiceNo.trim() ? "(present)" : "(empty)",
+    invoiceLen: invoiceNo.trim().length,
+  });
+
   if (!invoiceNo.trim()) {
     return NextResponse.json(
       {
@@ -24,6 +29,12 @@ export async function GET(request: Request) {
   const result = await getCustomerTrackingByInvoice(invoiceNo);
 
   if (!result.ok) {
+    console.log("[GET /api/tracking] fail", {
+      errorCode: result.errorCode,
+      message: result.message,
+      elapsedMs: Date.now() - startedAt,
+    });
+
     const status =
       result.errorCode === "INVALID_INVOICE"
         ? 400
@@ -41,6 +52,10 @@ export async function GET(request: Request) {
       { status }
     );
   }
+
+  console.log("[GET /api/tracking] success", {
+    elapsedMs: Date.now() - startedAt,
+  });
 
   return NextResponse.json({
     success: true,
