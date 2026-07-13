@@ -10,7 +10,8 @@
     "lint": "eslint",
     "type-check": "tsc -p tsconfig.typecheck.json --noEmit",
     "seed:users": "node scripts/seed-users.mjs",
-    "aligo:sync-templates": "node scripts/sync-aligo-templates.mjs"
+    "aligo:sync-templates": "node scripts/sync-aligo-templates.mjs",
+    "test:aligo-template-codes": "node --test scripts/test-aligo-template-codes.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",

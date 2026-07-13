@@ -23,9 +23,9 @@ export interface ResolvedAligoMessage {
 }
 
 export const LOCAL_TEMPLATE_FALLBACKS: Record<AligoTemplateType, string> = {
-  택배발송알림: "",
-  "선물보내는분 알림": "",
-  "선물받는분 알림": "",
+  택배발송알림: "안녕하세요, #{고객명} 고객님! \n포항 영남수산｜오름과메기 입니다.\n\n주문 하신 상품이 발송되었습니다.\n\n택배사: CJ 대한통운  \n송장번호: #{송장번호}\n\n감사합니다.",
+  "선물보내는분 알림": "안녕하세요, #{보내는이} 고객님! \n포항 영남수산｜오름과메기 입니다.\n\n#{받는이}님께 보내는 상품이 발송되었습니다.\n\n※ 해당 택배 발송 메시지는 받는 분께도 발송됩니다. (씨익)\n\n택배사: CJ 대한통운  \n송장번호: #{송장번호}\n\n감사합니다.",
+  "선물받는분 알림": "안녕하세요, #{받는이} 고객님! \n포항 영남수산｜오름과메기 입니다.\n\n#{보내는이}님이 보내는 상품이 발송되었습니다.\n\n택배사: CJ 대한통운  \n송장번호: #{송장번호}\n\n감사합니다.",
 };
 
 export function isAligoTemplateType(value: string): value is AligoTemplateType {

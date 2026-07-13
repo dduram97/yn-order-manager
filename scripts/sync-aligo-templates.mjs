@@ -19,9 +19,9 @@ const ENV_FILE = path.join(ROOT, ".env.local");
 const TEMPLATE_TYPES = ["택배발송알림", "선물보내는분 알림", "선물받는분 알림"];
 
 const TEMPLATE_CODES = {
-  "택배발송알림": "UJ_3780",
-  "선물보내는분 알림": "UJ_3622",
-  "선물받는분 알림": "UJ_3779",
+  "택배발송알림": "UJ_4465",
+  "선물보내는분 알림": "UJ_4467",
+  "선물받는분 알림": "UJ_4466",
 };
 
 const PLACEHOLDER_PATTERN = /#\{[^}]+\}/g;
@@ -100,6 +100,12 @@ async function main() {
 
   for (const type of TEMPLATE_TYPES) {
     const expectedCode = getTemplateCode(type, env);
+    const defaultCode = TEMPLATE_CODES[type];
+    if (expectedCode !== defaultCode) {
+      console.warn(
+        `⚠️ ${type}: env ALIGO_TPL_CODE_* 오버라이드 감지 (${expectedCode}). 기본값 ${defaultCode}와 다릅니다. 동기화 결과가 구코드로 덮일 수 있습니다.`
+      );
+    }
     const found = findTemplate(list, type, env);
 
     if (!found) {
