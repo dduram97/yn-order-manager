@@ -149,13 +149,17 @@ export async function POST(request: Request) {
         order_id: row.id,
         tracking_number: row.tracking_number,
       });
-      const result = await trackOrderDelivery(supabase, {
-        id: row.id,
-        tracking_number: row.tracking_number,
-        aligo_status: row.aligo_status,
-        delivery_status: row.delivery_status as DeliveryStatus | null,
-        delivery_location: row.delivery_location,
-      });
+      const result = await trackOrderDelivery(
+        supabase,
+        {
+          id: row.id,
+          tracking_number: row.tracking_number,
+          aligo_status: row.aligo_status,
+          delivery_status: row.delivery_status as DeliveryStatus | null,
+          delivery_location: row.delivery_location,
+        },
+        { eventSource: "auto_sync" }
+      );
 
       if (result.query_success) {
         updates.push({

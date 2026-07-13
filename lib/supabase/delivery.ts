@@ -1,7 +1,16 @@
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { createClient } from "@/lib/supabase/server";
 import { normalizeTrackingNumber } from "@/lib/delivery/smart-tracker";
-import type { DeliveryStatus } from "@/types/delivery";
+import { DELIVERY_TRACKING_EVENT_LABEL } from "@/lib/constants/delivery";
+import type {
+  DeliveryStatus,
+  DeliveryTrackingEventSource,
+  DeliveryTrackingEventType,
+  DeliveryTrackingLog,
+  DeliveryTrackingLogsResponse,
+} from "@/types/delivery";
 import type { Order } from "@/types/database";
+import type { OrderListItem } from "@/types/order";
 import type { SmartTrackerResponse } from "@/lib/delivery/smart-tracker";
 
 type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
@@ -42,6 +51,28 @@ function pickLatestOrder(rows: DeliveryOrderRow[]): DeliveryOrderRow | null {
   if (rows.length === 0) return null;
   return rows[0];
 }
+
+export function resolveDeliveryTrackingEventType(
+  source: DeliveryTrackingEventSource,
+  deliveryStatus: DeliveryStatus,
+  previousStatus?: DeliveryStatus | null
+): DeliveryTrackingEventType {
+  // 배송완료로 처음 전환될 때만 delivery_completed (이후 조회는 source 유지)
+  if (
+    deliveryStatus === "delivered" &&
+    previousStatus !== "delivered"
+  ) {
+    return "delivery_completed";
+  }
+  return source;
+}
+
+/** 발송현황 '배송조회' 숫자에 포함되는 이벤트 */
+export const CUSTOMER_TRACKING_VIEW_EVENT_TYPES: DeliveryTrackingEventType[] = [
+  "customer_view",
+  "delivery_completed",
+];
+
 
 /**
  * 고객용 /api/tracking 전용 — 송장번호를 숫자만 정규화하여 orders 조회
@@ -227,27 +258,193 @@ export async function listOrdersForDeliverySync(
   };
 }
 
-export async function insertDeliveryTrackingLog(
-  supabase: ServerSupabaseClient,
-  input: {
-    order_id: string;
-    tracking_number: string;
-    delivery_status: DeliveryStatus;
-    location?: string | null;
-    tracking_time?: string | null;
-    raw_response?: SmartTrackerResponse | null;
-  }
-) {
-  const { error } = await supabase.from("delivery_tracking_logs").insert({
-    order_id: input.order_id,
-    tracking_number: input.tracking_number,
-    delivery_status: input.delivery_status,
-    location: input.location ?? null,
-    tracking_time: input.tracking_time ?? null,
-    raw_response: input.raw_response ?? null,
-  } as never);
+/**
+ * delivery_tracking_logs insert — service role (RLS 우회)
+ */
+export async function insertDeliveryTrackingLog(input: {
+  order_id: string;
+  tracking_number: string;
+  delivery_status: DeliveryStatus;
+  event_type: DeliveryTrackingEventType;
+  location?: string | null;
+  tracking_time?: string | null;
+  raw_response?: SmartTrackerResponse | null;
+}) {
+  try {
+    const admin = createAdminClient();
+    const { error } = await admin.from("delivery_tracking_logs").insert({
+      order_id: input.order_id,
+      tracking_number: input.tracking_number,
+      delivery_status: input.delivery_status,
+      event_type: input.event_type,
+      location: input.location ?? null,
+      tracking_time: input.tracking_time ?? null,
+      raw_response: input.raw_response ?? null,
+    } as never);
 
-  return {
-    error: error as { message: string; code?: string } | null,
-  };
+    // 주문당 delivery_completed 1회 제약 — 동시 요청 시 무시
+    if (
+      error?.code === "23505" &&
+      input.event_type === "delivery_completed"
+    ) {
+      return { error: null };
+    }
+
+    return {
+      error: error as { message: string; code?: string } | null,
+    };
+  } catch (err) {
+    return {
+      error: {
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/** 목록용: order_id별 로그 건수를 한 번에 집계 (N+1 방지) */
+export async function countDeliveryTrackingLogsByOrderIds(
+  orderIds: string[]
+): Promise<{ counts: Map<string, number>; error: { message: string } | null }> {
+  const counts = new Map<string, number>();
+  if (orderIds.length === 0) {
+    return { counts, error: null };
+  }
+
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from("delivery_tracking_logs")
+      .select("order_id")
+      .in("order_id", orderIds)
+      .in("event_type", CUSTOMER_TRACKING_VIEW_EVENT_TYPES);
+
+    if (error) {
+      return {
+        counts,
+        error: { message: error.message },
+      };
+    }
+
+    for (const row of (data ?? []) as Array<{ order_id: string }>) {
+      counts.set(row.order_id, (counts.get(row.order_id) ?? 0) + 1);
+    }
+
+    return { counts, error: null };
+  } catch (err) {
+    return {
+      counts,
+      error: {
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+export async function attachDeliveryTrackingCounts(
+  orders: OrderListItem[]
+): Promise<OrderListItem[]> {
+  if (orders.length === 0) {
+    return orders.map((order) => ({ ...order, tracking_view_count: 0 }));
+  }
+
+  const { counts, error } = await countDeliveryTrackingLogsByOrderIds(
+    orders.map((order) => order.id)
+  );
+
+  if (error) {
+    console.error(
+      "[attachDeliveryTrackingCounts] 집계 실패:",
+      error.message
+    );
+  }
+
+  return orders.map((order) => ({
+    ...order,
+    tracking_view_count: counts.get(order.id) ?? 0,
+  }));
+}
+
+export async function listDeliveryTrackingLogsForOrder(
+  orderId: string
+): Promise<{
+  data: DeliveryTrackingLogsResponse | null;
+  error: { message: string; code?: string } | null;
+}> {
+  try {
+    const admin = createAdminClient();
+
+    const { data: order, error: orderError } = await admin
+      .from("orders")
+      .select("id, customer_name, phone")
+      .eq("id", orderId)
+      .maybeSingle();
+
+    if (orderError) {
+      return {
+        data: null,
+        error: orderError as { message: string; code?: string },
+      };
+    }
+
+    if (!order) {
+      return { data: null, error: { message: "주문을 찾을 수 없습니다." } };
+    }
+
+    const orderRow = order as {
+      id: string;
+      customer_name: string;
+      phone: string;
+    };
+
+    const { data: customer } = await admin
+      .from("customers")
+      .select("order_product")
+      .eq("phone", orderRow.phone)
+      .maybeSingle();
+
+    const { data: logs, error: logsError } = await admin
+      .from("delivery_tracking_logs")
+      .select("id, event_type, created_at")
+      .eq("order_id", orderId)
+      .in("event_type", CUSTOMER_TRACKING_VIEW_EVENT_TYPES)
+      .order("created_at", { ascending: false });
+
+    if (logsError) {
+      return {
+        data: null,
+        error: logsError as { message: string; code?: string },
+      };
+    }
+
+    const rows = (logs ?? []) as Array<
+      Pick<DeliveryTrackingLog, "id" | "event_type" | "created_at">
+    >;
+
+    return {
+      data: {
+        order_id: orderRow.id,
+        customer_name: orderRow.customer_name,
+        order_product:
+          (customer as { order_product?: string | null } | null)
+            ?.order_product ?? null,
+        total_count: rows.length,
+        logs: rows.map((row) => ({
+          id: row.id,
+          event_type: row.event_type,
+          event_label:
+            DELIVERY_TRACKING_EVENT_LABEL[row.event_type] ?? row.event_type,
+          created_at: row.created_at,
+        })),
+      },
+      error: null,
+    };
+  } catch (err) {
+    return {
+      data: null,
+      error: {
+        message: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
 }

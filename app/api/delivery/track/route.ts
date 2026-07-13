@@ -75,13 +75,17 @@ export async function GET(request: Request) {
     const items: DeliveryTrackItem[] = [];
 
     for (const row of targets) {
-      const result = await trackOrderDelivery(supabase, {
-        id: row.id,
-        tracking_number: row.tracking_number,
-        aligo_status: row.aligo_status,
-        delivery_status: row.delivery_status as DeliveryStatus | null,
-        delivery_location: row.delivery_location,
-      });
+      const result = await trackOrderDelivery(
+        supabase,
+        {
+          id: row.id,
+          tracking_number: row.tracking_number,
+          aligo_status: row.aligo_status,
+          delivery_status: row.delivery_status as DeliveryStatus | null,
+          delivery_location: row.delivery_location,
+        },
+        { eventSource: "admin_view" }
+      );
       items.push(result);
     }
 

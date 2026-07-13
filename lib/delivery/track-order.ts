@@ -8,9 +8,14 @@ import {
 import type { createClient } from "@/lib/supabase/server";
 import {
   insertDeliveryTrackingLog,
+  resolveDeliveryTrackingEventType,
   updateOrderDeliveryStatus,
 } from "@/lib/supabase/delivery";
-import type { DeliveryStatus, DeliveryTrackItem } from "@/types/delivery";
+import type {
+  DeliveryStatus,
+  DeliveryTrackItem,
+  DeliveryTrackingEventSource,
+} from "@/types/delivery";
 
 type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -24,8 +29,10 @@ export interface TrackOrderDeliveryRow {
 
 export async function trackOrderDelivery(
   supabase: ServerSupabaseClient,
-  row: TrackOrderDeliveryRow
+  row: TrackOrderDeliveryRow,
+  options: { eventSource?: DeliveryTrackingEventSource } = {}
 ): Promise<DeliveryTrackItem> {
+  const eventSource = options.eventSource ?? "admin_view";
   const fallbackStatus = resolveTrackDeliveryStatus(
     row.aligo_status,
     row.delivery_status
@@ -125,10 +132,17 @@ export async function trackOrderDelivery(
       });
     }
 
-    const { error: logError } = await insertDeliveryTrackingLog(supabase, {
+    const eventType = resolveDeliveryTrackingEventType(
+      eventSource,
+      deliveryStatus,
+      beforeStatus
+    );
+
+    const { error: logError } = await insertDeliveryTrackingLog({
       order_id: row.id,
       tracking_number: row.tracking_number,
       delivery_status: deliveryStatus,
+      event_type: eventType,
       location,
       tracking_time: trackingTime,
       raw_response: trackerData,

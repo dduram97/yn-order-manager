@@ -6,6 +6,7 @@ import {
   listOrders,
   recordAligoSendOutcome,
 } from "@/lib/supabase/orders";
+import { attachDeliveryTrackingCounts } from "@/lib/supabase/delivery";
 import type { Order } from "@/types/database";
 import type { OrderListQueryParams } from "@/types/order";
 import type { AligoFailReason } from "@/lib/aligo/fail-reason";
@@ -34,7 +35,13 @@ export async function listShipmentOrders(
   supabase: ServerSupabaseClient,
   params: OrderListQueryParams
 ) {
-  return listOrders(supabase, params);
+  const result = await listOrders(supabase, params);
+  if (result.error) {
+    return result;
+  }
+
+  const data = await attachDeliveryTrackingCounts(result.data);
+  return { ...result, data };
 }
 
 export async function executeOrderAligoSend(

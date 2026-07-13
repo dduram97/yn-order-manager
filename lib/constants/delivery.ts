@@ -1,4 +1,7 @@
-import type { DeliveryStatus } from "@/types/delivery";
+import type {
+  DeliveryStatus,
+  DeliveryTrackingEventType,
+} from "@/types/delivery";
 
 /** 스마트택배 택배사 코드 — CJ대한통운 */
 export const CJ_SMART_TRACKER_CODE = "04";
@@ -9,6 +12,16 @@ export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = {
   ready: "배송준비",
   in_transit: "배송중",
   delivered: "배송완료",
+};
+
+export const DELIVERY_TRACKING_EVENT_LABEL: Record<
+  DeliveryTrackingEventType,
+  string
+> = {
+  customer_view: "고객 배송조회",
+  delivery_completed: "배송완료 확인",
+  admin_view: "관리자 조회",
+  auto_sync: "자동 동기화",
 };
 
 export const DELIVERY_STATUS_EMOJI: Record<DeliveryStatus, string> = {

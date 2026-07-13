@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AligoStatusBadge } from "@/components/orders/aligo-status-badge";
 import { CustomerNameWithBadge } from "@/components/orders/customer-name-with-badge";
 import { DeliveryStatusBadge } from "@/components/orders/delivery-status-badge";
+import { DeliveryTrackingLogsModal } from "@/components/orders/delivery-tracking-logs-modal";
 import { DeliveryTrackingModal } from "@/components/orders/delivery-tracking-modal";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -50,12 +51,13 @@ const EMPTY_FILTERS: SearchFilters = {
 };
 
 const TABLE_COLUMNS = [
-  { key: "customer_name", label: "고객명", width: "16%" },
-  { key: "phone", label: "전화번호", width: "14%" },
-  { key: "tracking_number", label: "송장번호", width: "20%" },
-  { key: "delivery_status", label: "배송상태", width: "14%" },
-  { key: "aligo", label: "알리고", width: "14%" },
-  { key: "sent_date", label: "발송일", width: "12%" },
+  { key: "customer_name", label: "고객명", width: "14%" },
+  { key: "phone", label: "전화번호", width: "13%" },
+  { key: "tracking_number", label: "송장번호", width: "18%" },
+  { key: "delivery_status", label: "배송상태", width: "12%" },
+  { key: "tracking_view_count", label: "배송조회", width: "10%" },
+  { key: "aligo", label: "알리고", width: "12%" },
+  { key: "sent_date", label: "발송일", width: "11%" },
 ] as const;
 
 const TABLE_HEAD_CELL =
@@ -108,6 +110,8 @@ export function ShipmentList() {
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trackingOrder, setTrackingOrder] = useState<OrderListItem | null>(null);
+  const [trackingLogsOrder, setTrackingLogsOrder] =
+    useState<OrderListItem | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -271,6 +275,14 @@ export function ShipmentList() {
   ) => {
     e.stopPropagation();
     setTrackingOrder(order);
+  };
+
+  const handleTrackingViewCountClick = (
+    e: React.MouseEvent,
+    order: OrderListItem
+  ) => {
+    e.stopPropagation();
+    setTrackingLogsOrder(order);
   };
 
   const handleDeliveryTracked = useCallback(
@@ -616,6 +628,20 @@ export function ShipmentList() {
                         </div>
                       </td>
                       <td className={TABLE_BODY_CELL}>
+                        <div className={TABLE_CELL_INNER}>
+                          <button
+                            type="button"
+                            onClick={(e) =>
+                              handleTrackingViewCountClick(e, order)
+                            }
+                            className={`${CLICKABLE_DETAIL} tabular-nums`}
+                            aria-label={`${order.customer_name} 배송조회 이력`}
+                          >
+                            {order.tracking_view_count ?? 0}
+                          </button>
+                        </div>
+                      </td>
+                      <td className={TABLE_BODY_CELL}>
                         <div className={`${TABLE_CELL_INNER} flex-col gap-1`}>
                           <AligoStatusBadge
                             status={order.status ?? order.aligo_status}
@@ -695,6 +721,14 @@ export function ShipmentList() {
                         />
                       );
                     })()}
+                    <button
+                      type="button"
+                      onClick={(e) => handleTrackingViewCountClick(e, order)}
+                      className={`text-sm tabular-nums ${CLICKABLE_DETAIL}`}
+                      aria-label={`${order.customer_name} 배송조회 이력`}
+                    >
+                      배송조회 {order.tracking_view_count ?? 0}
+                    </button>
                     <AligoStatusBadge
                       status={order.status ?? order.aligo_status}
                       failReason={order.aligo_fail_reason}
@@ -746,6 +780,12 @@ export function ShipmentList() {
         customerName={trackingOrder?.customer_name ?? ""}
         onClose={() => setTrackingOrder(null)}
         onTracked={handleDeliveryTracked}
+      />
+
+      <DeliveryTrackingLogsModal
+        open={trackingLogsOrder != null}
+        orderId={trackingLogsOrder?.id ?? null}
+        onClose={() => setTrackingLogsOrder(null)}
       />
 
       {!loading && !error && pagination && (

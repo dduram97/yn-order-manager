@@ -1,5 +1,16 @@
 export type DeliveryStatus = "ready" | "in_transit" | "delivered";
 
+export type DeliveryTrackingEventType =
+  | "customer_view"
+  | "delivery_completed"
+  | "admin_view"
+  | "auto_sync";
+
+export type DeliveryTrackingEventSource = Exclude<
+  DeliveryTrackingEventType,
+  "delivery_completed"
+>;
+
 export interface DeliveryTrackingDetail {
   kind: string;
   where: string;
@@ -28,8 +39,24 @@ export interface DeliveryTrackingLog {
   order_id: string;
   tracking_number: string;
   delivery_status: DeliveryStatus;
+  event_type: DeliveryTrackingEventType;
   location: string | null;
   tracking_time: string | null;
   raw_response: unknown;
   created_at: string;
+}
+
+export interface DeliveryTrackingLogListItem {
+  id: string;
+  event_type: DeliveryTrackingEventType;
+  event_label: string;
+  created_at: string;
+}
+
+export interface DeliveryTrackingLogsResponse {
+  order_id: string;
+  customer_name: string;
+  order_product: string | null;
+  total_count: number;
+  logs: DeliveryTrackingLogListItem[];
 }

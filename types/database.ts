@@ -140,6 +140,7 @@ export interface Database {
           order_id: string;
           tracking_number: string;
           delivery_status: DeliveryStatus;
+          event_type: import("./delivery").DeliveryTrackingEventType;
           location?: string | null;
           tracking_time?: string | null;
           raw_response?: unknown;
@@ -150,6 +151,7 @@ export interface Database {
           order_id?: string;
           tracking_number?: string;
           delivery_status?: DeliveryStatus;
+          event_type?: import("./delivery").DeliveryTrackingEventType;
           location?: string | null;
           tracking_time?: string | null;
           raw_response?: unknown;

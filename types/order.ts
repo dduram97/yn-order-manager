@@ -86,6 +86,8 @@ export interface OrderListItem {
   delivery_status?: DeliveryStatus | null;
   delivery_updated_at?: string | null;
   delivery_location?: string | null;
+  /** delivery_tracking_logs 기준 주문별 배송조회 횟수 */
+  tracking_view_count?: number;
 }
 
 export interface OrderListParams {
